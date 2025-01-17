@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QPushButton, QVBoxLayout, QHBoxLayout, QWidget
+from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QSpinBox
 from PyQt5.QtGui import QImage, QPixmap
 import numpy as np
 import cv2 as cv
@@ -10,11 +10,15 @@ from camera import CameraHandler
 from robot import RobotSocketClient
 from image_processing import undistort_image, draw_cross, map_image_to_world, find_centroids, draw_points, save_image
 from config import CAMERA_MATRIX, DIST_COEFFS, HOMO_MATRIX, SAVE_FOLDER, CAM_NUM
+from logger_config import get_logger
 
+# Configure the logger
+logger = get_logger("UI")
 
 class VisionApp(QWidget):
     def __init__(self):
         super().__init__()
+        logger.info("Press R Key to record current cross position")
         self.setup_ui()
         self.setup_robot_conn()
         self.camera = CameraHandler(cam_num=CAM_NUM)
@@ -56,17 +60,17 @@ class VisionApp(QWidget):
         self.capture_button = QPushButton("Capture and Process", self)
         self.cycle_vision_button = QPushButton("Cycle Vision", self)
         self.save_frame_button = QPushButton("Save Frame", self)
-        self.next_centroid_button = QPushButton("Next centroid", self)
         self.jump_xy_button = QPushButton("Jump XY", self)
-        # self.dip_z_button = QPushButton("Dip Z", self)
         self.insert_button = QPushButton("Insert", self)
+
+        # Control box
+        self.number_box = QSpinBox()
+        self.number_box.setRange(0, 1000)
 
         self.capture_button.clicked.connect(self.process_image)
         self.cycle_vision_button.clicked.connect(self.cycle_vision)
         self.save_frame_button.clicked.connect(self.on_save_frame)
-        self.next_centroid_button.clicked.connect(self.next_centroid)
         self.jump_xy_button.clicked.connect(self.jump_xy)
-        # self.dip_z_button.clicked.connect(self.dip_z)
         self.insert_button.clicked.connect(self.insert_cell)
 
         # Layout
@@ -77,34 +81,22 @@ class VisionApp(QWidget):
         button_layout.addWidget(self.capture_button)
         button_layout.addWidget(self.cycle_vision_button)
         button_layout.addWidget(self.save_frame_button)
-        button_layout.addWidget(self.next_centroid_button)
+        button_layout.addWidget(self.number_box)
         button_layout.addWidget(self.jump_xy_button)
-        # button_layout.addWidget(self.dip_z_button)
         button_layout.addWidget(self.insert_button)
 
         layout.addLayout(button_layout)
         self.setLayout(layout)
 
     def setup_robot_conn(self):
-        self.robot_client = None
-        try:
-            self.robot_client = RobotSocketClient('192.168.0.1', 8501)
-            self.robot_client.connect_socket()
-            print("Robot connected.")
-        except Exception as e:
-            print(f"Robot connection failed: {e}")
+        self.robot_client = RobotSocketClient('192.168.0.1', 8501)
+        self.robot_client.connect_socket()
 
     def jump_xy(self):
         if self.robo_cross_pos is not None:
             x, y = self.robo_cross_pos
             response = self.robot_client.send_message(f"jump {x:.2f} {y:.2f} -75 180")
             self.robot_last_point = [x, y, -75, 180]
-
-    def dip_z(self):
-        if self.robo_cross_pos is not None:
-            x, y = self.robo_cross_pos
-            response = self.robot_client.send_message(f"jump {x:.2f} {y:.2f} -140 180")
-            self.robot_last_point = [x, y, -100, 180]
 
     def insert_cell(self):
         if self.robo_cross_pos is not None:
@@ -131,7 +123,7 @@ class VisionApp(QWidget):
         self.frame_contour = process_dict["contour_overlay"]
         self.centroids = process_dict["centroids"]
 
-        print(f"Total centroids found: {len(self.centroids)}")
+        logger.info(f"Total centroids found: {len(self.centroids)}")
         self.next_centroid()
         
     def cycle_vision(self):
@@ -148,7 +140,7 @@ class VisionApp(QWidget):
             self.view_state = "live"
 
         self.cycle_vision_button.setText(self.view_state)
-        print(f"View state: {self.view_state}")
+        logger.info(f"View state: {self.view_state}")
     
     def on_save_frame(self):
         self.save_next_frame = True
@@ -157,16 +149,16 @@ class VisionApp(QWidget):
         """Point self.cam_cross_pos to the next centroid in self.centroids"""
         # TODO: If finish, return none
         if not self.centroids:
-            print("No centroids found")
+            logger.error("No centroids found")
             return
         
         self.centroid_index += 1
         if self.centroid_index < len(self.centroids):
             x, y = self.centroids[self.centroid_index]
             self.set_cross_position(x, y)
-            print(f"Centroid #{self.centroid_index}: {x}, {y}")
+            logger.info(f"Centroid #{self.centroid_index}: {x}, {y}")
         else:
-            print("No more centroids to go next")
+            logger.info("No more centroids to go next")
 
     def update_frame(self):
         """Update frame to display on the view"""
@@ -181,7 +173,7 @@ class VisionApp(QWidget):
             frame = self.frame_contour
 
         if frame is None:
-            # print("No frame update")
+            # logger.info("No frame update")
             return
         frame = frame.copy()
 
@@ -239,13 +231,13 @@ class VisionApp(QWidget):
             # Update cam_cross_pos and redraw
             self.set_cross_position(x, y)
             # self.cam_cross_pos = np.array([x, y])
-            # print(f"New cross position: {self.cam_cross_pos}")
+            # logger.info(f"New cross position: {self.cam_cross_pos}")
             # self.update_frame()
         
     def set_cross_position(self, x, y):
         self.cam_cross_pos = np.array([x, y])
         self.robo_cross_pos = map_image_to_world(self.cam_cross_pos, HOMO_MATRIX)
-        # print(f"Camera: {self.cam_cross_pos}, Robot: {self.robo_cross_pos}")
+        # logger.info(f"Camera: {self.cam_cross_pos}, Robot: {self.robo_cross_pos}")
 
     def record_pos_info(self):
         """For fine tuning homography use.
@@ -258,8 +250,10 @@ class VisionApp(QWidget):
         if self.robot_last_point:
             img_x, img_y = self.cam_cross_pos
             robo_x, robo_y, _, _ = self.robot_last_point
-            print(f"        ({img_x}, {img_y}, {robo_x}, {robo_y})")
-
+            logger.info(f"        ({img_x}, {img_y}, {robo_x}, {robo_y})")
+        else:
+            img_x, img_y = self.cam_cross_pos
+            logger.info(f"        ({img_x}, {img_y}, robo_x, robo_y)")
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -295,7 +289,7 @@ class VisionApp(QWidget):
         Args:
             event (QCloseEvent): The close event triggered when the window is closed.
         """
-        print("Closing application...")
+        logger.info("Closing application...")
 
         # Stop the timer
         if self.timer.isActive():

@@ -34,7 +34,7 @@ update_frame:
 -> Convert to QImage
 
 ## Message cycle
-Python: 
+Python:
 - Send msg "insert X Y Z U" with ack msg "ack"
 
 Robot:
@@ -45,7 +45,7 @@ Robot:
 - Send msg "insertcomplete"
 
 Python:
-- Confirm msg "insertcomplete"
+- wait for confirm msg "insertcomplete"
 - Start next cycle
 
 ## Insert ActionLoop routine
