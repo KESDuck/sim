@@ -1,7 +1,6 @@
 import os
 import cv2 as cv
 import numpy as np
-import itertools
 from datetime import datetime
 from config import SAVE_FOLDER
 

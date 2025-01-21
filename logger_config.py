@@ -6,7 +6,7 @@ def get_logger(name):
     if not logger.hasHandlers():  # Avoid duplicate handlers
         handler = logging.StreamHandler()
         formatter = logging.Formatter(
-            fmt='%(asctime)s [%(name)s][%(levelname)s] %(message)s',
+            fmt='%(asctime)s.%(msecs)03d [%(name)s][%(levelname)s] %(message)s',
             datefmt='%H:%M:%S'
         )
         handler.setFormatter(formatter)

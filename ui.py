@@ -2,9 +2,6 @@ from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QSpinBox
 from PyQt5.QtGui import QImage, QPixmap
 import numpy as np
-import cv2 as cv
-import os
-from datetime import datetime
 from graphics_view import GraphicsView
 from camera import CameraHandler
 from robot import RobotSocketClient
@@ -26,7 +23,7 @@ class VisionApp(QWidget):
         # Timer for updating frames
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)
-        self.timer.start(10)
+        self.timer.start(100) # in ms
 
         # start at camera's focal point
         self.cam_cross_pos = np.array([int(CAMERA_MATRIX[0][2]), int(CAMERA_MATRIX[1][2])])
@@ -58,10 +55,11 @@ class VisionApp(QWidget):
 
         # Control buttons
         self.capture_button = QPushButton("Capture and Process", self)
-        self.cycle_vision_button = QPushButton("Cycle Vision", self)
+        self.cycle_vision_button = QPushButton("live", self)
         self.save_frame_button = QPushButton("Save Frame", self)
         self.jump_xy_button = QPushButton("Jump XY", self)
         self.insert_button = QPushButton("Insert", self)
+        self.echo_button = QPushButton("Echo", self)
 
         # Control box
         self.number_box = QSpinBox()
@@ -72,6 +70,7 @@ class VisionApp(QWidget):
         self.save_frame_button.clicked.connect(self.on_save_frame)
         self.jump_xy_button.clicked.connect(self.jump_xy)
         self.insert_button.clicked.connect(self.insert_cell)
+        self.echo_button.clicked.connect(self.echo_test)
 
         # Layout
         layout = QVBoxLayout()
@@ -84,24 +83,28 @@ class VisionApp(QWidget):
         button_layout.addWidget(self.number_box)
         button_layout.addWidget(self.jump_xy_button)
         button_layout.addWidget(self.insert_button)
+        button_layout.addWidget(self.echo_button)
 
         layout.addLayout(button_layout)
         self.setLayout(layout)
 
     def setup_robot_conn(self):
         self.robot_client = RobotSocketClient('192.168.0.1', 8501)
-        self.robot_client.connect_socket()
+        self.robot_client.connect()
+
+    def echo_test(self):
+        self.robot_client.send_command(f"echo 0 1 2 3")
 
     def jump_xy(self):
         if self.robo_cross_pos is not None:
             x, y = self.robo_cross_pos
-            response = self.robot_client.send_message(f"jump {x:.2f} {y:.2f} -75 180")
+            self.robot_client.send_command(f"jump {x:.2f} {y:.2f} -75 180")
             self.robot_last_point = [x, y, -75, 180]
 
     def insert_cell(self):
         if self.robo_cross_pos is not None:
             x, y = self.robo_cross_pos
-            response = self.robot_client.send_message(f"insert {x:.2f} {y:.2f} -140 180")
+            self.robot_client.send_command(f"insert {x:.2f} {y:.2f} -140 180")
             self.robot_last_point = None
 
     def process_image(self):
@@ -301,7 +304,7 @@ class VisionApp(QWidget):
 
         # Close the robot socket connection
         if self.robot_client is not None:
-            self.robot_client.close_socket()
+            self.robot_client.close()
 
         # Accept the event to close the application
         event.accept()

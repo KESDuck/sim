@@ -34,18 +34,16 @@ update_frame:
 -> Convert to QImage
 
 ## Message cycle
-Python:
+Python - Nonblocking messaging setup using qtimer. (Because using QTimer is generally the best practice over QApplication.processEvents() in most scenarios. )
 - Send msg "insert X Y Z U" with ack msg "ack"
 
 Robot:
-- Received msg
-- Parse msg
-- Set CommandReady = 1
-- Insert ActionLoop routine
-- Send msg "insertcomplete"
+- Received msg and send "ack"
+- Perform task based on the command, first word decide which function to perform
+- If task completed successfully, send msg "taskdone"
 
 Python:
-- wait for confirm msg "insertcomplete"
+- wait for confirm msg "taskdone"
 - Start next cycle
 
 ## Insert ActionLoop routine

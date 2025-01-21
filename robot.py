@@ -1,14 +1,15 @@
+import sys
 from PyQt5.QtNetwork import QTcpSocket
 from PyQt5.QtCore import QObject, pyqtSignal
 from logger_config import get_logger
 
 # Configure the logger
-logger = get_logger("Socket") 
+logger = get_logger("Socket")
 
 class RobotSocketClient(QObject):
-    message_sent = pyqtSignal(str)        # Signal emitted when a message is sent
-    response_received = pyqtSignal(str)  # Signal emitted when a response is received
-    connection_error = pyqtSignal(str)   # Signal emitted when a connection error occurs
+    connected = pyqtSignal()          # Emitted when connected
+    response_received = pyqtSignal(str)  # Emitted when a response is received
+    connection_error = pyqtSignal(str)   # Emitted on connection error
 
     def __init__(self, ip, port):
         super().__init__()
@@ -16,50 +17,91 @@ class RobotSocketClient(QObject):
         self.port = port
         self.socket = QTcpSocket()
 
-        # Connect signals from QTcpSocket
+        # Connect socket signals
         self.socket.connected.connect(self.on_connected)
-        self.socket.readyRead.connect(self.on_ready_read)
+        self.socket.readyRead.connect(self.on_ready_read) # message come in, readyRead is emitted, and triggers on_ready_read
         self.socket.errorOccurred.connect(self.on_error)
 
-        self.buffer = b''  # For handling received data
-
-    def connect_socket(self):
-        """Connect to the robot using QTcpSocket."""
+    def connect(self):
+        """Connect to the robot server."""
         logger.info(f"Connecting to {self.ip}:{self.port}...")
         self.socket.connectToHost(self.ip, self.port)
+        if not self.socket.waitForConnected(3000):  # Wait for 3 seconds
+            logger.error("Unable to connect to server.")
 
-    def send_message(self, message):
-        """Send a message to the robot via the connected QTcpSocket."""
-        if self.socket.state() == QTcpSocket.ConnectedState:
-            logger.info(f"Sending: {message}")
-            self.socket.write((str(message).encode()) + b"\r\n")
-            self.message_sent.emit(message)  # Emit a signal that a message was sent
-        else:
-            logger.warning("Socket is not connected. Cannot send message.")
+    def send_command(self, command, timeout_ack=1000, timeout_task=5000):
+        """Send a command and wait for acknowledgment and task completion.
+           Timeout in ms(0.001s)"""
+        if self.socket.state() != QTcpSocket.ConnectedState:
+            logger.warning("Socket is not connected.")
+            return False
 
-    def close_socket(self):
-        """Close the QTcpSocket."""
+        try:
+            logger.info(f"Sending: {command}")
+            self.socket.write((command + "\r\n").encode())
+            self.socket.flush()
+
+            if not self._wait_for_message("ack", timeout_ack):
+                logger.warning("Error: No 'ack' received.")
+                return False
+
+            if not self._wait_for_message("taskdone", timeout_task):
+                logger.warning("Error: No 'taskdone' received.")
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error sending command '{command}': {e}")
+            return False
+
+    def close(self):
+        """Close the connection."""
         if self.socket.state() == QTcpSocket.ConnectedState:
-            logger.info("Closing socket connection...")
+            logger.info("Closing connection...")
             self.socket.disconnectFromHost()
-            if self.socket.state() != QTcpSocket.UnconnectedState:
-                self.socket.waitForDisconnected(3000)
 
-    # Slots
+    def _wait_for_message(self, expected_message, timeout):
+        """Wait for a specific message from the robot."""
+        from PyQt5.QtCore import QEventLoop, QTimer
+
+        loop = QEventLoop()
+        timer = QTimer()
+        timer.setSingleShot(True)
+
+        def on_timer_timeout():
+            loop.quit()
+
+        def on_message_received(message):
+            if message == expected_message:
+                timer.stop()
+                loop.quit()
+
+        timer.timeout.connect(on_timer_timeout)
+        self.response_received.connect(on_message_received)
+
+        timer.start(timeout)
+        loop.exec()
+
+        self.response_received.disconnect(on_message_received)
+        timer.timeout.disconnect(on_timer_timeout)
+
+        return not timer.isActive()
+
     def on_connected(self):
+        """Handle successful connection."""
         logger.info("Connected to the server.")
+        self.connected.emit()
 
     def on_ready_read(self):
-        """Handle incoming data."""
-        self.buffer += self.socket.readAll().data()
-        if b'\r\n' in self.buffer:  # Assume messages end with '\r\n'
-            message, self.buffer = self.buffer.split(b'\r\n', 1)
-            response = message.decode('utf-8')
-            logger.info(f"Received response: {response}")
-            self.response_received.emit(response)  # Emit the received response as a signal
+        """Handle incoming data from the robot."""
+        while self.socket.canReadLine():
+            response = self.socket.readLine().data().decode().strip()
+            logger.info(f"Received: {response}")
+            self.response_received.emit(response)
 
-    def on_error(self, socket_error):
+    def on_error(self):
         """Handle connection errors."""
         error_message = self.socket.errorString()
         logger.error(f"Connection error: {error_message}")
-        self.connection_error.emit(error_message)  # Emit the error message as a signal
+        self.connection_error.emit(error_message)
