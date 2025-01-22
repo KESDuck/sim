@@ -1,6 +1,6 @@
 import sys
 from PyQt5.QtNetwork import QTcpSocket
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 from logger_config import get_logger
 
 # Configure the logger
@@ -16,6 +16,8 @@ class RobotSocketClient(QObject):
         self.ip = ip
         self.port = port
         self.socket = QTcpSocket()
+        self.reconnect_timer = QTimer()
+        self.reconnect_timer.timeout.connect(self.try_connect)
 
         # Connect socket signals
         self.socket.connected.connect(self.on_connected)
@@ -25,9 +27,20 @@ class RobotSocketClient(QObject):
     def connect(self):
         """Connect to the robot server."""
         logger.info(f"Connecting to {self.ip}:{self.port}...")
-        self.socket.connectToHost(self.ip, self.port)
-        if not self.socket.waitForConnected(3000):  # Wait for 3 seconds
-            logger.error("Unable to connect to server.")
+        self.try_connect()
+        # self.socket.connectToHost(self.ip, self.port)
+
+    def try_connect(self):
+        if self.socket.state() != QTcpSocket.ConnectedState:
+            self.socket.abort()
+            self.socket.connectToHost(self.ip, self.port)
+
+    def on_connected(self):
+        """Handle successful connection."""
+        logger.info("Connected to the server.")
+        self.connected.emit()
+        if self.reconnect_timer.isActive():
+            self.reconnect_timer.stop()
 
     def send_command(self, command, timeout_ack=1000, timeout_task=5000):
         """Send a command and wait for acknowledgment and task completion.
@@ -88,11 +101,6 @@ class RobotSocketClient(QObject):
 
         return not timer.isActive()
 
-    def on_connected(self):
-        """Handle successful connection."""
-        logger.info("Connected to the server.")
-        self.connected.emit()
-
     def on_ready_read(self):
         """Handle incoming data from the robot."""
         while self.socket.canReadLine():
@@ -104,4 +112,5 @@ class RobotSocketClient(QObject):
         """Handle connection errors."""
         error_message = self.socket.errorString()
         logger.error(f"Connection error: {error_message}")
-        self.connection_error.emit(error_message)
+        if not self.reconnect_timer.isActive():
+            self.reconnect_timer.start(5000) # retry every 5 seconds

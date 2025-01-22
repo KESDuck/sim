@@ -2,6 +2,7 @@ from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QSpinBox
 from PyQt5.QtGui import QImage, QPixmap
 import numpy as np
+import signal
 from graphics_view import GraphicsView
 from camera import CameraHandler
 from robot import RobotSocketClient
@@ -20,6 +21,9 @@ class VisionApp(QWidget):
         self.setup_robot_conn()
         self.camera = CameraHandler(cam_num=CAM_NUM)
 
+        # Handle Ctrl+C to safe close app
+        signal.signal(signal.SIGINT, lambda signal_received, frame: self.close())
+
         # Timer for updating frames
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)
@@ -31,7 +35,6 @@ class VisionApp(QWidget):
         self.is_pause = False
         self.view_state = "live" # live, live_clear, paused_orig, paused_thres, paused_contours
         self.save_next_frame = False
-        self.centroid_index = None
 
         # frame and points, (all being saved during process_image)
         self.frame_saved = None # right after undistort
@@ -45,7 +48,7 @@ class VisionApp(QWidget):
     def setup_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("Image Viewer with Robot Control")
-        self.setGeometry(100, 100, 1200, 1200)
+        self.setGeometry(50, 50, 1000, 700)
 
         # Graphics view for displaying images
         self.graphics_view = GraphicsView(self)
@@ -53,18 +56,19 @@ class VisionApp(QWidget):
         self.graphics_view.setScene(self.scene)
         self.pixmap_item = None  # Placeholder for the image item
 
-        # Control buttons
-        self.capture_button = QPushButton("Capture and Process", self)
-        self.cycle_vision_button = QPushButton("live", self)
+        # stores the selected cell index
+        self.cell_index = QSpinBox()
+        self.cell_index.setRange(-1, 0)
+
+        # Control buttons and spin box
+        self.capture_button = QPushButton("Process", self)
+        self.cycle_vision_button = QPushButton("Live", self)
         self.save_frame_button = QPushButton("Save Frame", self)
         self.jump_xy_button = QPushButton("Jump XY", self)
         self.insert_button = QPushButton("Insert", self)
         self.echo_button = QPushButton("Echo", self)
 
-        # Control box
-        self.number_box = QSpinBox()
-        self.number_box.setRange(0, 1000)
-
+        # Connect control to functions
         self.capture_button.clicked.connect(self.process_image)
         self.cycle_vision_button.clicked.connect(self.cycle_vision)
         self.save_frame_button.clicked.connect(self.on_save_frame)
@@ -80,7 +84,7 @@ class VisionApp(QWidget):
         button_layout.addWidget(self.capture_button)
         button_layout.addWidget(self.cycle_vision_button)
         button_layout.addWidget(self.save_frame_button)
-        button_layout.addWidget(self.number_box)
+        button_layout.addWidget(self.cell_index)
         button_layout.addWidget(self.jump_xy_button)
         button_layout.addWidget(self.insert_button)
         button_layout.addWidget(self.echo_button)
@@ -112,7 +116,7 @@ class VisionApp(QWidget):
         Also process the image to find centroids
         Reset centroid index
         """
-        self.centroid_index = -1
+        self.cell_index.setValue(-1)
 
         image = self.camera.get_frame()
         if image is None:
@@ -125,6 +129,8 @@ class VisionApp(QWidget):
         self.frame_threshold = process_dict["threshold"]
         self.frame_contour = process_dict["contour_overlay"]
         self.centroids = process_dict["centroids"]
+        
+        self.cell_index.setMaximum(len(self.centroids) - 1)
 
         logger.info(f"Total centroids found: {len(self.centroids)}")
         self.next_centroid()
@@ -155,11 +161,12 @@ class VisionApp(QWidget):
             logger.error("No centroids found")
             return
         
-        self.centroid_index += 1
-        if self.centroid_index < len(self.centroids):
-            x, y = self.centroids[self.centroid_index]
+        self.cell_index.setValue(self.cell_index.value() + 1) # increment cell index
+
+        if self.cell_index.value() < len(self.centroids):
+            x, y = self.centroids[self.cell_index.value()]
             self.set_cross_position(x, y)
-            logger.info(f"Centroid #{self.centroid_index}: {x}, {y}")
+            logger.info(f"Centroid #{self.cell_index.value()}: {x}, {y}")
         else:
             logger.info("No more centroids to go next")
 
@@ -181,7 +188,7 @@ class VisionApp(QWidget):
         frame = frame.copy()
 
         if self.centroids and self.view_state != "live_clear":
-            draw_points(frame, self.centroids, self.centroid_index)
+            draw_points(frame, self.centroids, self.cell_index.value())
         draw_cross(frame, self.cam_cross_pos[0], self.cam_cross_pos[1])
         if self.save_next_frame:
             save_image(frame)
@@ -309,12 +316,3 @@ class VisionApp(QWidget):
         # Accept the event to close the application
         event.accept()
 
-
-if __name__ == "__main__":
-    from PyQt5.QtWidgets import QApplication
-    import sys
-
-    app = QApplication(sys.argv)
-    camera_app = CameraApp()
-    camera_app.show()
-    sys.exit(app.exec_())
