@@ -20,11 +20,16 @@ def save_image(image):
     cv.imwrite(path, image_bgr)
     print(f"Image saved to {path}")
 
-def undistort_image(image, camera_matrix, dist_coeffs):
-    return cv.undistort(image, camera_matrix, dist_coeffs)
 
 def draw_cross(image, x, y, color=(0, 0, 255)):
+    # Check if the image is grayscale
+    if len(image.shape) == 2 or image.shape[2] == 1:  # Grayscale image
+        image = cv.cvtColor(image, cv.COLOR_GRAY2BGR)
+
+    # Draw the cross on the image
     cv.drawMarker(image, (x, y), color, markerType=cv.MARKER_CROSS, markerSize=20, thickness=1)
+
+    return image
 
 def draw_points(image, points, current_index):
     if points == None:
@@ -41,9 +46,8 @@ def draw_points(image, points, current_index):
 
         cv.circle(image, points[i], 4, color, -1)
     
-def map_image_to_world(image_point, homo_matrix):
-    """Maps a 2D image point to world coordinates using a homography matrix."""
-    # TODO: change "world" to "robot"
+def map_image_to_robot(image_point, homo_matrix):
+    """Maps a 2D image point to robot coordinates using a homography matrix."""
     point_homogeneous = np.array([image_point[0], image_point[1], 1.0])
     world_point_homogeneous = np.dot(homo_matrix, point_homogeneous)
     world_point = world_point_homogeneous / world_point_homogeneous[2]
@@ -77,7 +81,7 @@ def sort_centroids(centroids, x_tolerance=30):
     return centroids
 
 
-
+# depreciated
 def find_centroids(image, threshold_value=135, min_area=500, max_area=800, crop_region=None, alpha=0.5):
     """
     Processes an image to find and display contours and their centroids.
@@ -120,7 +124,6 @@ def find_centroids(image, threshold_value=135, min_area=500, max_area=800, crop_
                 cY = int(M["m01"] / M["m00"])
                 if determine_bound((cX, cY), crop_region):
                     centroids.append((cX, cY))
-    # TODO make it so centroids have logical ordering
 
 
     ##### SAVING #####
@@ -141,3 +144,31 @@ def find_centroids(image, threshold_value=135, min_area=500, max_area=800, crop_
     # blended = cv.addWeighted(gray_bgr, alpha, np.ones_like(gray_bgr) * 255, 1 - alpha, 0)
 
     return return_dict
+
+def add_spinning_indicator(spin_angle, frame):
+    """
+    Adds a spinning indicator to the top-right corner of the frame.
+    TODO: test this
+    """
+    height, width, _ = frame.shape
+    center = (width - 30, 30)  # Top-right corner
+    radius = 20
+    thickness = 2
+
+    # Increment the spinning angle
+    spin_angle = (spin_angle + 10) % 360
+
+    # Draw the spinning arc
+    start_angle = spin_angle
+    end_angle = (spin_angle + 60) % 360  # 60-degree arc
+
+    # Handle cases where the end_angle wraps around 360
+    if end_angle < start_angle:
+        # Draw two arcs to handle wrapping
+        cv.ellipse(frame, center, (radius, radius), 0, start_angle, 360, (255, 0, 0), thickness)
+        cv.ellipse(frame, center, (radius, radius), 0, 0, end_angle, (255, 0, 0), thickness)
+    else:
+        # Draw a single arc
+        cv.ellipse(frame, center, (radius, radius), 0, start_angle, end_angle, (255, 0, 0), thickness)
+
+    return frame

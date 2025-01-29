@@ -1,4 +1,3 @@
-import sys
 from PyQt5.QtNetwork import QTcpSocket
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 from logger_config import get_logger
@@ -6,7 +5,7 @@ from logger_config import get_logger
 # Configure the logger
 logger = get_logger("Socket")
 
-class RobotSocketClient(QObject):
+class RobotSocket(QObject):
     connected = pyqtSignal()          # Emitted when connected
     response_received = pyqtSignal(str)  # Emitted when a response is received
     connection_error = pyqtSignal(str)   # Emitted on connection error
@@ -111,6 +110,6 @@ class RobotSocketClient(QObject):
     def on_error(self):
         """Handle connection errors."""
         error_message = self.socket.errorString()
-        logger.error(f"Connection error: {error_message}")
+        logger.error(f"Socket not connected, msg: {error_message}")
         if not self.reconnect_timer.isActive():
             self.reconnect_timer.start(5000) # retry every 5 seconds

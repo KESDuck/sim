@@ -1,10 +1,17 @@
 import numpy as np
 
-CAM_NUM = 1
-CAMERA_MATRIX = np.array([[1588.0, 0.0, 915.0173144],
-                          [0.0, 1586.0, 554.91861322],
+CAMERA_MATRIX = np.array([[1.0, 0.0, 1.0],
+                          [0.0, 1.0, 1.0],
                           [0.0, 0.0, 1.0]])
-DIST_COEFFS = np.array([-0.016, 0., 0., 0., 0.]).reshape(-1, 1)
+DIST_COEFFS = np.array([0., 0., 0., 0., 0.]).reshape(-1, 1)
+
+CAM_TYPE = "usb" # pylon or usb
+CAM_NUM = 0 # used if usb camera
+
+# CAMERA_MATRIX = np.array([[1588.0, 0.0, 915.0173144],
+#                           [0.0, 1586.0, 554.91861322],
+#                           [0.0, 0.0, 1.0]])
+# DIST_COEFFS = np.array([-0.016, 0., 0., 0., 0.]).reshape(-1, 1)
 
 # 2024.11.25
 # HOMO_MATRIX = np.array([[2.72759434e-04, -2.59791855e-01, 3.05165396e+02],

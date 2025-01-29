@@ -4,7 +4,24 @@
 1. hardware setup: feeder is set to the correct screw diameter using precision staris. Add screws to the feeder (or vibratory feeder)
 2. Insert frame and web plate, secure on conveyor
 3. Press start, robot starts main insertion operation
+    a. Robot move camera to position
+    b. Camera grab frame
+    c. Process image to return list of cell location in robot coordinate
+    d. Send each coordinate to robot
 4. When completed the loaded frame is ejected from the robot ready for pick up
+
+## Dependency Tree
+
+main
+└── AppUI (UI)
+    ├── GraphicsView
+    └── AppManager
+        ├── RobotManager
+        │   └── RobotSocket
+        └── VisionManager
+            ├── CameraHandler
+            └── image_processing
+
 
 ## UI
 - Camera View
@@ -13,7 +30,7 @@
     - Arrow key and WASD to adjust location
     - If image processed:
 - Control panel
-    - Process
+    - Grab and Process image
     - Cycle filters
     - Save Frame
     - Cell number box
@@ -31,9 +48,9 @@ Buttons: Start, Stop, Num box,
 Webcam
 iPhone
 Basler (pylon)
-- Use pylon IP configurator
-
-
+- Use pylon IP configurator or pylon Viewer
+acA2500-14gm 16mm
+- 15x20 cells, 90 pixel per cell
 
 ## Vision cycle
 Flow of Operations:
