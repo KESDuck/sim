@@ -8,3 +8,4 @@ save/
 venv/
 
 .DS_Store
+.vscode

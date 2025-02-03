@@ -1,14 +1,16 @@
 # Usage:
 
-## Ideal operation
-1. hardware setup: feeder is set to the correct screw diameter using precision staris. Add screws to the feeder (or vibratory feeder)
+## Ideal operation (happy path)
+1. hardware setup: feeder is set to the correct screw diameter using precision stairs. Add screws to the feeder (or vibratory feeder)
 2. Insert frame and web plate, secure on conveyor
 3. Press start, robot starts main insertion operation
     a. Robot move camera to position
     b. Camera grab frame
     c. Process image to return list of cell location in robot coordinate
     d. Send each coordinate to robot
+    e. Robot returns "taskdone" for each insertion, and loop until all cells are inserted
 4. When completed the loaded frame is ejected from the robot ready for pick up
+
 
 ## Dependency Tree
 
@@ -111,11 +113,15 @@ start if CommandReady == 1 and RobotCommand == "insert"
 
 
 # App manual unit tests:
-- When clicked, the cross is at right position and shows the robot coordinate
-- When zoomed in, the mouse click to the right position
+## window
 - Resize the window so nothing weird happen
+
+## cross
+- When clicked, the cross is at right position and shows the robot coordinate
 - Arrow keys moves the cross, WASD moves the cross 10px
+- When zoomed in, the mouse click to the right position
+- Press R Key to record current cross position
+
 - Image is actually saved
 - TCPIP sends in the right format: (str(message).encode()) + b"\r\n"
-- Press R Key to record current cross position
 - When sending message and while waiting for 'taskdone', UI is still responsive

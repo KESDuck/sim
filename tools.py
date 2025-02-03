@@ -2,9 +2,8 @@ import os
 import cv2 as cv
 import numpy as np
 from datetime import datetime
-from config import SAVE_FOLDER
 
-def save_image(image):
+def save_image(image, folder):
     """save image to file"""
 
     # Convert the image from RGB to BGR (if necessary)
@@ -15,11 +14,10 @@ def save_image(image):
 
     now = datetime.now()
     filename = f"{now.strftime('%Y-%m-%d %H%M%S')}.jpg"
-    os.makedirs(SAVE_FOLDER, exist_ok=True)
-    path = os.path.join(SAVE_FOLDER, filename)
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, filename)
     cv.imwrite(path, image_bgr)
     print(f"Image saved to {path}")
-
 
 def draw_cross(image, x, y, color=(0, 0, 255)):
     # Check if the image is grayscale
@@ -63,7 +61,6 @@ def determine_bound(point, crop_region):
 
     return False
 
-
 def sort_centroids(centroids, x_tolerance=30):
     """
     Sort centroids such that they are grouped by similar x-coordinates,
@@ -79,7 +76,6 @@ def sort_centroids(centroids, x_tolerance=30):
     # Step 1: Sort by x-coordinates first, with grouping tolerance
     centroids = sorted(centroids, key=lambda c: (c[0] // x_tolerance, c[1]))
     return centroids
-
 
 # depreciated
 def find_centroids(image, threshold_value=135, min_area=500, max_area=800, crop_region=None, alpha=0.5):

@@ -1,0 +1,40 @@
+cam_type: "usb"  # pylon or usb
+cam_num: 0  # used if usb camera
+save_folder: "save/"
+
+homo_matrix:
+  - [1, 1, 1]
+  - [1, 1, 1]
+  - [1, 1, 1]
+
+capture_positions:
+  - [0, 0, 0, 0]
+  - [0, 0, 0, 0]
+  - [0, 0, 0, 0]
+
+
+# CAMERA_MATRIX = np.array([[1.0, 0.0, 1.0],
+#                           [0.0, 1.0, 1.0],
+#                           [0.0, 0.0, 1.0]])
+# DIST_COEFFS = np.array([0., 0., 0., 0., 0.]).reshape(-1, 1)
+
+# CAMERA_MATRIX = np.array([[1588.0, 0.0, 915.0173144],
+#                           [0.0, 1586.0, 554.91861322],
+#                           [0.0, 0.0, 1.0]])
+# DIST_COEFFS = np.array([-0.016, 0., 0., 0., 0.]).reshape(-1, 1)
+
+# ##### HOME_MATRIXs #####
+
+# 2024.11.25
+# HOMO_MATRIX = np.array([[2.72759434e-04, -2.59791855e-01, 3.05165396e+02],
+#                         [2.63955820e-01, 3.01259080e-03, 1.26809084e+02],
+#                         [8.17586196e-06, 8.36679512e-06, 1.00000000e+00]])
+
+# 2024.11.26 using iphone on the gound
+# HOMO_MATRIX = np.array([[-1.07927861e-03, -2.55345923e-01,  3.01330206e+02],
+#                         [ 2.55593626e-01,  1.17795504e-04,  1.33137608e+02],
+#                         [-1.92816177e-06,  4.63631422e-06,  1.00000000e+00]])
+
+
+# TODO: find 3 positions (left, center, right) for capture
+# TODO: image process config store

@@ -3,14 +3,14 @@ import cv2 as cv
 
 from logger_config import get_logger
 from camera import CameraHandler
-from config import CAMERA_MATRIX, HOMO_MATRIX
-from tools import draw_cross, find_centroids, draw_points, save_image, determine_bound, sort_centroids
+from tools import determine_bound, sort_centroids
 
 logger = get_logger("Vision")
 
 class VisionManager():
     """
     Capture using "Camera" class, apply threshold, apply contour, draw centroids, record centroids location
+    Stored the frames after capture and process
     TODO: Save image
     """
     def __init__(self):
@@ -18,7 +18,8 @@ class VisionManager():
         self.first_frame()
 
         # image frame and points, (all being saved during process_image)
-        self.frame_camera = None # right after undistort
+        self.frame_camera_live = None # right after undistort
+        self.frame_camera_stored = None
         self.frame_threshold = None # right after threshold
         self.frame_contour = None # with contour
         self.centroids = None # list of cenrtroids
@@ -43,17 +44,20 @@ class VisionManager():
         crop_region = None
         alpha = 0.5
 
-        # get frame (preprocessed)
-        self.frame_camera = self.camera.get_frame() # grayscale image
-        
-        if process:
+        if not process:
+            # get frame (preprocessed)
+            self.frame_camera_live = self.camera.get_frame() # grayscale image
+
+        else:
+            self.frame_camera_stored = self.camera.get_frame()
+
             # threshold
-            _, thres = cv.threshold(self.frame_camera, threshold_value, 255, cv.THRESH_BINARY)
+            _, thres = cv.threshold(self.frame_camera_stored, threshold_value, 255, cv.THRESH_BINARY)
 
             # contours
             contours, _ = cv.findContours(thres, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
-            # Filter Contours
+            # Filter Contours based on contour area
             filtered_contours = [cnt for cnt in contours if min_area < cv.contourArea(cnt) < max_area]
 
             # Find Centroids

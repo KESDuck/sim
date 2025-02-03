@@ -1,9 +1,7 @@
 from logger_config import get_logger
 from robot_socket import RobotSocket
 
-
 logger = get_logger("Robot")
-
 
 class RobotManager:
     """
@@ -22,6 +20,23 @@ class RobotManager:
         Received: taskdone
         """
         self.client.send_command(f"echo 0 1 2 3")
+
+    def get_position(self):
+        """
+        TODO Needed to check if camera is at right position
+        Good for testing communication
+        Sending: get_position 0 0 0 0
+        Received: ack
+        Received: Position 100 200 300 0
+        Received: taskdone
+        """
+        pass
+
+    def move(self, x, y, z, u):
+        command = f"move {x:.2f} {y:.2f} {z:.2f} {u:.2f}"
+        logger.info(f"Executing: {command}")
+        self.client.send_command(command)
+        self.last_position = [x, y, z, u]
 
     def jump_xy(self, x, y):
         command = f"jump {x:.2f} {y:.2f} -75.0 0.0"
