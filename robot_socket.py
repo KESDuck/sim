@@ -110,6 +110,6 @@ class RobotSocket(QObject):
     def on_error(self):
         """Handle connection errors."""
         error_message = self.socket.errorString()
-        logger.error(f"Socket not connected, msg: {error_message}")
+        logger.error(f"Socket not connected") # {error_message}
         if not self.reconnect_timer.isActive():
             self.reconnect_timer.start(5000) # retry every 5 seconds

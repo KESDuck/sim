@@ -11,7 +11,6 @@ logger = get_logger("Manager")
 with open('config.yml', 'r') as file:
     config = yaml.safe_load(file)
 
-print(config)
 
 class AppManager():
     """
@@ -23,7 +22,7 @@ class AppManager():
     """
     def __init__(self):
         self.robot = RobotManager()
-        self.vision = VisionManager()
+        self.vision = VisionManager(cam_type=config["cam_type"])
 
         self.cam_xy_cross = np.array([1, 1])
         self.robo_xy_cross = None
@@ -64,8 +63,8 @@ class AppManager():
         self.vision.capture_and_process(process)
 
     def on_save_frame(self):
-        if self.vision.frame_camera:
-            save_image(self.vision.frame_camera, config["save_folder"])
+        if self.vision.frame_camera_stored:
+            save_image(self.vision.frame_camera_stored, config["save_folder"])
 
     def jump_xy(self):
         pass

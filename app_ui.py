@@ -5,7 +5,7 @@ import signal
 
 from logger_config import get_logger
 from graphics_view import GraphicsView
-from tools import draw_cross
+from tools import draw_cross, save_image
 from app_manager import AppManager
 
 # Configure the logger
@@ -37,6 +37,11 @@ class AppUI(QWidget):
         
         logger.info("Press R Key to note current cross position")
 
+        # capture and set state to paused orig for testing
+        self.view_states.setCurrentIndex(1)
+        self.capture_image()
+
+
     def setup_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("Image Viewer with Robot Control")
@@ -67,7 +72,7 @@ class AppUI(QWidget):
         # Connect control to functions
         self.capture_button.clicked.connect(self.capture_image)
         self.view_states.currentTextChanged.connect(self.view_state_changed)
-        self.save_frame_button.clicked.connect(self.app_manager.on_save_frame)
+        self.save_frame_button.clicked.connect(self.on_save_frame)
         self.jump_xy_button.clicked.connect(self.app_manager.jump_xy)
         # self.insert_single_button.clicked.connect(self.app_manager.insert_single)
         self.insert_view_button.clicked.connect(self.app_manager.insert_all_in_view)
@@ -102,7 +107,7 @@ class AppUI(QWidget):
         self.screen_timer.start(100)  # overlay remains active in paused states
 
         if self.view_states.currentText() == "live":
-            self.capture_timer.start(200)  # live updates
+            self.capture_timer.start(300)  # live updates
         else:
             self.capture_timer.stop() # use stored image to display
 
@@ -128,7 +133,7 @@ class AppUI(QWidget):
         for UI to be responsive. Therefore, camera capture is not done in this function.
 
         Display frame based on current state
-        Draw cross
+        Make a copy and draw cross
         Works for both grayscale or RGB frame
         """
         cur_state = self.view_states.currentText()
@@ -149,8 +154,10 @@ class AppUI(QWidget):
         if self.disp_frame is None:
             # warning if there is no processed screen
             if cur_state != "live":
-                logger.warning("No frame, please capture and process first")
+                logger.warning("Nothing to display, please capture and process first")
             return
+        else:
+            self.disp_frame = self.disp_frame.copy()
 
         x, y = self.app_manager.cam_xy_cross
         frame = draw_cross(self.disp_frame, x, y)
@@ -182,6 +189,8 @@ class AppUI(QWidget):
         # TODO: need?
         # del self.frame
 
+    def on_save_frame(self):
+        save_image(self.disp_frame, "save/")
 
     def update_cross_position(self, scene_pos):
         """

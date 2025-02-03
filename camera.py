@@ -100,7 +100,6 @@ class CameraHandler:
             self.camera = PylonCamera(camera_matrix, dist_coeffs)
         else:
             raise ValueError(f"Unsupported camera type: {cam_type}")
-        logger.info(f"CameraHandler initialized with {cam_type} camera.")
 
     def get_frame(self):
         """Delegate frame capture to the selected camera."""

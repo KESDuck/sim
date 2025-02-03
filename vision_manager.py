@@ -13,8 +13,8 @@ class VisionManager():
     Stored the frames after capture and process
     TODO: Save image
     """
-    def __init__(self):
-        self.camera = CameraHandler(cam_type="usb", camera_matrix=None, dist_coeffs=None)
+    def __init__(self, cam_type):
+        self.camera = CameraHandler(cam_type=cam_type, camera_matrix=None, dist_coeffs=None)
         self.first_frame()
 
         # image frame and points, (all being saved during process_image)
@@ -39,8 +39,14 @@ class VisionManager():
 
         # TODO: add these to param
         threshold_value = 135
-        min_area = 500
-        max_area = 800
+
+        # iphone:
+        # min_area = 500
+        # max_area = 800
+
+        min_area = 6000 # around 80*80
+        max_area = 10000 # 100 * 100
+
         crop_region = None
         alpha = 0.5
 
@@ -52,7 +58,7 @@ class VisionManager():
             self.frame_camera_stored = self.camera.get_frame()
 
             # threshold
-            _, thres = cv.threshold(self.frame_camera_stored, threshold_value, 255, cv.THRESH_BINARY)
+            _, thres = cv.threshold(self.frame_camera_stored, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
 
             # contours
             contours, _ = cv.findContours(thres, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)

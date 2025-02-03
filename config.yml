@@ -1,4 +1,4 @@
-cam_type: "usb"  # pylon or usb
+cam_type: "pylon"  # pylon or usb
 cam_num: 0  # used if usb camera
 save_folder: "save/"
 
