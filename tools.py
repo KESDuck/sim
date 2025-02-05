@@ -19,19 +19,24 @@ def save_image(image, folder):
     cv.imwrite(path, image_bgr)
     print(f"Image saved to {path}")
 
-def draw_cross(image, x, y, color=(0, 0, 255)):
+def draw_cross(image, x, y, color=(0, 0, 255), size=25):
     # Check if the image is grayscale
     if len(image.shape) == 2 or image.shape[2] == 1:  # Grayscale image
         image = cv.cvtColor(image, cv.COLOR_GRAY2BGR)
 
     # Draw the cross on the image
-    cv.drawMarker(image, (x, y), color, markerType=cv.MARKER_CROSS, markerSize=20, thickness=1)
+    cv.drawMarker(image, (x, y), color, markerType=cv.MARKER_CROSS, markerSize=size, thickness=1)
 
     return image
 
-def draw_points(image, points, current_index):
+def draw_points(image, points, current_index, size=5):
+
     if points == None:
-        return
+        return image
+    
+    # Check if the image is grayscale
+    if len(image.shape) == 2 or image.shape[2] == 1:  # Grayscale image
+        image = cv.cvtColor(image, cv.COLOR_GRAY2BGR)
 
     for i in range(len(points)):
         color = (0, 0, 0) # red, green, blue
@@ -42,8 +47,9 @@ def draw_points(image, points, current_index):
         elif i > current_index:
             color = (0, 0, 255)
 
-        cv.circle(image, points[i], 4, color, -1)
-    
+        cv.circle(image, points[i], size, color, -1)
+    return image
+
 def map_image_to_robot(image_point, homo_matrix):
     """Maps a 2D image point to robot coordinates using a homography matrix."""
     point_homogeneous = np.array([image_point[0], image_point[1], 1.0])
@@ -72,10 +78,28 @@ def sort_centroids(centroids, x_tolerance=30):
 
     Returns:
         list: A flat list of centroids, sorted by grouped x and then y.
+
+    TODO: understand this...
     """
-    # Step 1: Sort by x-coordinates first, with grouping tolerance
-    centroids = sorted(centroids, key=lambda c: (c[0] // x_tolerance, c[1]))
-    return centroids
+    # Step 1: Sort by x-coordinates first
+    centroids.sort(key=lambda c: c[0])  
+
+    # Step 2: Group centroids into clusters based on x_tolerance
+    groups = []
+    current_group = [centroids[0]]
+
+    for i in range(1, len(centroids)):
+        if abs(centroids[i][0] - current_group[-1][0]) <= x_tolerance:
+            current_group.append(centroids[i])
+        else:
+            groups.append(sorted(current_group, key=lambda c: c[1]))  # Sort group by y
+            current_group = [centroids[i]]
+
+    groups.append(sorted(current_group, key=lambda c: c[1]))  # Sort last group
+
+    # Step 3: Flatten list
+    return [c for group in groups for c in group]
+
 
 def add_spinning_indicator(spin_angle, frame):
     """

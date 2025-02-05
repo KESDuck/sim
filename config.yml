@@ -1,14 +1,15 @@
-cam_type: "pylon"  # pylon or usb
+cam_type: "file"  # pylon or usb or file
 cam_num: 0  # used if usb camera
 save_folder: "save/"
+img_path: "save/2025-02-05 103533.jpg"
 
 homo_matrix:
-  - [1, 1, 1]
-  - [1, 1, 1]
-  - [1, 1, 1]
+  - [-7.68828642e-02, -3.80427893e-04,  2.79101836e+02]
+  - [ 2.40173849e-04,  7.64634578e-02,  3.41166542e+02]
+  - [ 8.39750022e-07, -8.18586946e-07,  1.00000000e+00]
 
 capture_positions:
-  - [0, 0, 0, 0]
+  - [50, 470, 0, 0]
   - [0, 0, 0, 0]
   - [0, 0, 0, 0]
 

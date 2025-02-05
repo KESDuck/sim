@@ -2,8 +2,11 @@ from abc import ABC, abstractmethod
 import cv2 as cv
 from pypylon import pylon
 from logger_config import get_logger
+import yaml
 
 logger = get_logger("Camera")
+with open('config.yml', 'r') as file:
+    config = yaml.safe_load(file)
 
 # Abstract Base Class
 class CameraBase(ABC):
@@ -109,6 +112,17 @@ class PylonCamera(CameraBase):
         self.camera.Close()
         logger.info("Pylon camera released.")
 
+class FileMockInterface:
+    def __init__(self, path):
+        self.path = path
+
+    def get_frame(self):
+        return cv.imread(self.path, cv.IMREAD_GRAYSCALE)
+
+    def release(self):
+        pass
+
+
 # Camera Handler Class
 class CameraHandler:
     """
@@ -119,6 +133,8 @@ class CameraHandler:
             self.camera = USBCamera(cam_num, camera_matrix, dist_coeffs)
         elif cam_type == "pylon":
             self.camera = PylonCamera(camera_matrix, dist_coeffs)
+        elif cam_type == "file":
+            self.camera = FileMockInterface(path=config["img_path"])
         else:
             raise ValueError(f"Unsupported camera type: {cam_type}")
 

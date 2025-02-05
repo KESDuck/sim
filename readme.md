@@ -14,7 +14,7 @@ This application is a robot vision system that integrates a camera, robot arm, a
 
 
 ## Dependency Tree
-
+```
 main
 └── AppUI (User Interface)
     ├── GraphicsView (Handles zoom & display)
@@ -24,7 +24,7 @@ main
         └── VisionManager (Handles camera and image processing)
             ├── CameraHandler (Manages camera operations)
             └── image_processing (Applies image thresholding & contour detection)
-
+```
 
 
 ## UI

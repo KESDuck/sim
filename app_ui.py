@@ -5,7 +5,7 @@ import signal
 
 from logger_config import get_logger
 from graphics_view import GraphicsView
-from tools import draw_cross, save_image
+from tools import draw_cross, save_image, draw_points
 from app_manager import AppManager
 
 # Configure the logger
@@ -53,32 +53,37 @@ class AppUI(QWidget):
         self.graphics_view.setScene(self.scene)
         self.pixmap_item = None  # Placeholder for the image item
 
-        # spin boxs
-        self.cell_index = QSpinBox() # stores the selected cell index
-        self.cell_index.setRange(-1, 0)
+        ##### Cell index spinbox #####
+        self.cell_spinbox = QSpinBox() # stores the selected cell index
+        self.cell_spinbox.setRange(-1, 0)
+        self.app_manager.cell_index_changed.connect(self.cell_spinbox.setValue) # sync spin box with cell value
+        self.cell_spinbox.valueChanged.connect(self.on_cell_spinbox_changed)
 
-        # Combo boxes
+        ##### UI States #####
         self.view_states = QComboBox()
         self.view_states.addItems(["live", "paused orig", "paused thres", "paused contours"])
-
-        # Control buttons
-        self.capture_button = QPushButton("Process", self)
-        self.save_frame_button = QPushButton("Save Frame", self)
-        self.jump_xy_button = QPushButton("Jump XY", self)
-        self.insert_single_button = QPushButton("Insert Single", self)
-        self.insert_view_button = QPushButton("Insert View", self)
-        self.echo_button = QPushButton("Echo", self)
-
-        # Connect control to functions
-        self.capture_button.clicked.connect(self.capture_image)
         self.view_states.currentTextChanged.connect(self.view_state_changed)
+
+        ##### Control buttons #####
+        self.capture_button = QPushButton("Process", self)
+        self.capture_button.clicked.connect(self.capture_image)
+
+        self.save_frame_button = QPushButton("Save Frame", self)
         self.save_frame_button.clicked.connect(self.on_save_frame)
+        
+        self.jump_xy_button = QPushButton("Jump XY", self)
         self.jump_xy_button.clicked.connect(self.app_manager.jump_xy)
-        # self.insert_single_button.clicked.connect(self.app_manager.insert_single)
-        self.insert_view_button.clicked.connect(self.app_manager.insert_all_in_view)
+
+        self.insert_single_button = QPushButton("Insert Single", self)
+        self.insert_single_button.clicked.connect(self.app_manager.insert_single_cell)
+
+        self.insert_batch_button = QPushButton("Insert Batch", self)
+        self.insert_batch_button.clicked.connect(self.app_manager.insert_all_in_view)
+
+        self.echo_button = QPushButton("Echo", self)
         self.echo_button.clicked.connect(self.app_manager.echo_test)
 
-        # Layout
+        ##### Layout #####
         layout = QVBoxLayout()
         layout.addWidget(self.graphics_view)
 
@@ -86,10 +91,10 @@ class AppUI(QWidget):
         button_layout.addWidget(self.capture_button)
         button_layout.addWidget(self.view_states)
         button_layout.addWidget(self.save_frame_button)
-        button_layout.addWidget(self.cell_index)
+        button_layout.addWidget(self.cell_spinbox)
         button_layout.addWidget(self.jump_xy_button)
         button_layout.addWidget(self.insert_single_button)
-        button_layout.addWidget(self.insert_view_button)
+        button_layout.addWidget(self.insert_batch_button)
         button_layout.addWidget(self.echo_button)
 
         layout.addLayout(button_layout)
@@ -125,7 +130,7 @@ class AppUI(QWidget):
             self.app_manager.capture_and_process(process=False)
         else:
             self.app_manager.capture_and_process(process=True)
-    
+            self.cell_spinbox.setMaximum(len(self.app_manager.cells_img_xy)-1)
 
     def update_screen(self):
         """
@@ -157,10 +162,13 @@ class AppUI(QWidget):
                 logger.warning("Nothing to display, please capture and process first")
             return
         else:
+            # copy the frame away from vision manager (so later can be saved)
             self.disp_frame = self.disp_frame.copy()
 
-        x, y = self.app_manager.cam_xy_cross
-        frame = draw_cross(self.disp_frame, x, y)
+        frame = draw_points(self.disp_frame, self.app_manager.cells_img_xy, self.app_manager.cell_index, size=10)
+
+        x, y = self.app_manager.cross_cam_xy
+        frame = draw_cross(frame, x, y, size=30)
 
         # Convert frame to QImage
         if len(frame.shape) == 2:  # Grayscale frame, likely not needed draw_cross convert to color
@@ -191,12 +199,15 @@ class AppUI(QWidget):
         # TODO: need?
         # del self.frame
 
+    def on_cell_spinbox_changed(self, value):
+        self.app_manager.set_cell_index(value)
+
     def on_save_frame(self):
         save_image(self.disp_frame, "save/")
 
     def update_cross_position(self, scene_pos):
         """
-        Called by mouse click (graphics_view)
+        Called by mouse click (in graphics_view.py)
         Get clicked scene position. Stored position in AppManager
 
         Args:

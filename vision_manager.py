@@ -67,6 +67,7 @@ class VisionManager():
 
             # Find Centroids
             centroids = []
+            filtered_contours_2 = [] # based on selected centroids
             for cnt in filtered_contours:
                 x, y, w, h = cv.boundingRect(cnt)
                 aspect_ratio = w / h
@@ -76,6 +77,7 @@ class VisionManager():
                         cX = int(M["m10"] / M["m00"])
                         cY = int(M["m01"] / M["m00"])
                         if determine_bound((cX, cY), crop_region):
+                            filtered_contours_2.append(cnt)
                             centroids.append((cX, cY))
 
             ##### SAVING #####
@@ -83,7 +85,7 @@ class VisionManager():
             self.frame_threshold = cv.cvtColor(thres, cv.COLOR_GRAY2BGR)
 
             contour_overlay = self.frame_threshold.copy()
-            for cnt in filtered_contours: # Draw the contours
+            for cnt in filtered_contours_2: # Draw the contours
                 cv.drawContours(contour_overlay, [cnt], -1, (0, 255, 0), 2)  # Green for contours
 
             self.frame_contour = contour_overlay

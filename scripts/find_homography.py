@@ -2,7 +2,7 @@ import cv2 as cv
 import math
 import numpy as np
 
-# 50, 470, 0, 0
+# capture position: 50, 470, 0, 0
 image_points = np.array(
     [
         [513, 375],
