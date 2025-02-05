@@ -1,4 +1,3 @@
-import numpy as np
 import cv2 as cv
 
 from logger_config import get_logger
@@ -15,7 +14,7 @@ class VisionManager():
     """
     def __init__(self, cam_type):
         self.camera = CameraHandler(cam_type=cam_type, camera_matrix=None, dist_coeffs=None)
-        self.first_frame()
+        self.get_first_frame()
 
         # image frame and points, (all being saved during process_image)
         self.frame_camera_live = None # right after undistort
@@ -24,7 +23,7 @@ class VisionManager():
         self.frame_contour = None # with contour
         self.centroids = None # list of cenrtroids
 
-    def first_frame(self):
+    def get_first_frame(self):
         frame = self.camera.get_frame()
         logger.info(f"Frame shape: {frame.shape}")
 
@@ -91,57 +90,6 @@ class VisionManager():
             self.centroids = sort_centroids(centroids)
 
             logger.info(f"Total centroids found: {len(self.centroids)}")
-
-
-
-        # if self.view_state == "live" or self.view_state == "live_clear":
-        #     frame = self.camera.get_frame()
-        # elif self.view_state == "paused_orig":
-        #     frame = self.frame_saved
-        # elif self.view_state == "paused_thres":
-        #     frame = self.frame_threshold
-        # elif self.view_state == "paused_contours":
-        #     frame = self.frame_contour
-
-        # if frame is None:
-        #     return
-        # frame = frame.copy()
-
-        # if self.centroids and self.view_state != "live_clear":
-        #     draw_points(frame, self.centroids, self.cell_index.value())
-        # draw_cross(frame, self.cam_cross_pos[0], self.cam_cross_pos[1])
-        
-        # if self.save_next_frame:
-        #     save_image(frame)
-        #     self.save_next_frame = False
-
-        # return frame
-
-
-    # def process_image(self):
-    #     """
-    #     Capture the current frame
-    #     Also process the image to find centroids
-    #     Reset centroid index
-    #     """
-    #     self.cell_index.setValue(-1)
-
-    #     image = self.camera.get_frame()
-    #     if image is None:
-    #         return
-
-    #     # process image
-    #     process_dict = find_centroids(image)
-
-    #     self.frame_saved = image
-    #     self.frame_threshold = process_dict["threshold"]
-    #     self.frame_contour = process_dict["contour_overlay"]
-    #     self.centroids = process_dict["centroids"]
-
-    #     self.cell_index.setMaximum(len(self.centroids) - 1)
-
-    #     logger.info(f"Total centroids found: {len(self.centroids)}")
-    #     self.next_centroid()
 
     def next_centroid(self):
         """Point self.cam_cross_pos to the next centroid in self.centroids"""

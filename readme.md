@@ -1,4 +1,5 @@
 # Usage:
+This application is a robot vision system that integrates a camera, robot arm, and user interface for precise operations like screw insertion. It consists of multiple components that communicate through message protocols, and it features a homography-based calibration system to convert camera coordinates to robot coordinates.
 
 ## Ideal operation (happy path)
 1. hardware setup: feeder is set to the correct screw diameter using precision stairs. Add screws to the feeder (or vibratory feeder)
@@ -15,32 +16,25 @@
 ## Dependency Tree
 
 main
-└── AppUI (UI)
-    ├── GraphicsView
-    └── AppManager
-        ├── RobotManager
-        │   └── RobotSocket
-        └── VisionManager
-            ├── CameraHandler
-            └── image_processing
+└── AppUI (User Interface)
+    ├── GraphicsView (Handles zoom & display)
+    └── AppManager (Controls entire system)
+        ├── RobotManager (Controls robot movement)
+        │   └── RobotSocket (Handles TCP/IP communication with robot)
+        └── VisionManager (Handles camera and image processing)
+            ├── CameraHandler (Manages camera operations)
+            └── image_processing (Applies image thresholding & contour detection)
+
 
 
 ## UI
-- Camera View
-    - Can zoom in and out for precise calibration
-    - Click to show coordinate
-    - Arrow key and WASD to adjust location
-    - If image processed:
-- Control panel
-    - Grab and Process image
-    - Cycle filters
-    - Save Frame
-    - Cell number box
-- Robot command panel
-    - Jump
-    - Insert
-    - Echo
-
+Live Camera Mode (Real-time updates)
+Paused Original Image (For fine-tuning)
+Thresholded Image (Processed for centroids)
+Contours Mode (Overlays detected contours)
+Crosshair Adjustment (Arrow keys & WASD & Mouse Click)
+Robot Commands (Jump, Insert, Echo)
+Saving Processed Frames
 
 ## Main insertion operation
 
@@ -90,7 +84,14 @@ Python:
 - Start next cycle
 
 ## Homography Calibration
-1. Teach robot tooling (in Robot Manager)
+Teach robot tooling (in Robot Manager) 
+1. setup hardware:
+    - known points
+2. take picture and note their points in image coordinate
+3. let robot go to those positions
+
+
+1. 
 1. Start both the robot script and vision app
 2. 
 
@@ -106,11 +107,28 @@ start if CommandReady == 1 and RobotCommand == "insert"
 - Move back (-y) for clearance
 - Set CommandReady = 0
 
+# Milestones
+## 1 Screw (Date: )
+Manual robot alignment with eye
 
-# App Design Requirments: 
+## 10 screws (Date: )
+Camera and robot to find all positions
+One by one insert
+Human nearby to make sure its accurate
 
+## 100 screws (current)
+Continuously insert
+Error handling for communication
+Start and resume functionality
+Automatic calibration
 
+## 1000 screws
+Conveyor tracking
+Insert the 1 whole plate
+Very little error
 
+## 10000 screws
+Fully automate
 
 # App manual unit tests:
 ## window
@@ -125,3 +143,14 @@ start if CommandReady == 1 and RobotCommand == "insert"
 - Image is actually saved
 - TCPIP sends in the right format: (str(message).encode()) + b"\r\n"
 - When sending message and while waiting for 'taskdone', UI is still responsive
+
+# Error Analysis
+1. Parallex Error due to variation in height
+    - WD 600mm
+    - V_Err = 5mm
+    - H_Err = 0.1mm (@10mm), 0.4 (50), 0.8 (100), 1.3 (500)
+2. Homography calibration error (~0.1mm)
+3. Camera calibration error (camera matrix, distortion vector)
+4. Robot tool calibration error (including end effector hardware)
+5. Camera resolution error
+6. Screw bending

@@ -1,6 +1,6 @@
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtWidgets import QGraphicsScene, QGraphicsPixmapItem, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QSpinBox, QComboBox
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtGui import QImage, QPixmap, QBrush, QColor
 import signal
 
 from logger_config import get_logger
@@ -37,10 +37,10 @@ class AppUI(QWidget):
         
         logger.info("Press R Key to note current cross position")
 
-        # capture and set state to paused orig for testing
+        # pause state right after starting
         self.view_states.setCurrentIndex(1)
         self.capture_image()
-
+        
 
     def setup_ui(self):
         """Initialize the user interface."""
@@ -107,7 +107,7 @@ class AppUI(QWidget):
         self.screen_timer.start(100)  # overlay remains active in paused states
 
         if self.view_states.currentText() == "live":
-            self.capture_timer.start(300)  # live updates
+            self.capture_timer.start(1000)  # live updates
         else:
             self.capture_timer.stop() # use stored image to display
 
@@ -116,8 +116,8 @@ class AppUI(QWidget):
         Based on the view state, capture and process frame and store in self.disp_frame
         Decoupled from update screen
         Triggers when process button is clicked, should not trigger otherwise
+        Capture only if previous capture task is done
         """
-
         cur_state = self.view_states.currentText()
 
         # capture image, process if needed
@@ -125,7 +125,7 @@ class AppUI(QWidget):
             self.app_manager.capture_and_process(process=False)
         else:
             self.app_manager.capture_and_process(process=True)
-
+    
 
     def update_screen(self):
         """
@@ -178,6 +178,8 @@ class AppUI(QWidget):
             # Add the image to the scene for the first time
             self.pixmap_item = QGraphicsPixmapItem(pixmap)
             self.scene.addItem(self.pixmap_item)
+
+            self.scene.setBackgroundBrush(QBrush(QColor(0, 128, 128)))  # set background
 
             # Fit the image to the view initially and set the minimum scale
             self.graphics_view.fitInView(self.scene.itemsBoundingRect(), Qt.KeepAspectRatio)

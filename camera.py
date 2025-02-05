@@ -65,16 +65,27 @@ class PylonCamera(CameraBase):
         self.camera.Open()
         self.camera_matrix = camera_matrix
         self.dist_coeffs = dist_coeffs
-        logger.info(f"Pylon camera connected: {self.camera.GetDeviceInfo().GetModelName()}")
+        model_name = self.camera.GetDeviceInfo().GetModelName()
+        camera_ip = self.camera.GetDeviceInfo().GetIpAddress()
+        logger.info(f"Pylon camera connected: {model_name} ({camera_ip})")
 
     def get_frame(self):
         """Capture and preprocess a frame from the Pylon camera."""
-        grab_result = self.camera.GrabOne(4000)  # Timeout in milliseconds
-        if not grab_result.GrabSucceeded():
-            logger.error("Failed to capture frame from Pylon camera.")
+
+        try:
+            grab_result = self.camera.GrabOne(4000)  # Timeout in milliseconds
+            if not grab_result.GrabSucceeded():
+                logger.error("Failed to capture frame from Pylon camera.")
+                return None
+
+            return self._undistort(grab_result.Array)
+        
+        except pylon.RuntimeException as e:
+            # logger.error(f"{e}")
+            # TODO this happens often, see how to not to use try except
+            self.reconnect_camera()
             return None
 
-        return self._undistort(grab_result.Array)
 
     def _undistort(self, frame):
         """Undistort the frame if calibration data is provided."""
@@ -82,6 +93,16 @@ class PylonCamera(CameraBase):
             logger.info("Applying undistortion to Pylon frame.")
             return cv.undistort(frame, self.camera_matrix, self.dist_coeffs)
         return frame
+
+    def reconnect_camera(self):
+        """Safely release and reconnect the camera."""
+        try:
+            self.release()
+            self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
+            self.camera.Open()
+            logger.info("Camera reconnected successfully.")
+        except Exception as e:
+            logger.error(f"Failed to reconnect camera: {e}")
 
     def release(self):
         """Release the Pylon camera."""
