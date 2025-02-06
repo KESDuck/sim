@@ -13,6 +13,14 @@ capture_positions:
   - [0, 0, 0, 0]
   - [0, 0, 0, 0]
 
+# TODO: robot IP and port
+
+robot:
+  z_max: -16.5
+  z_min: -157
+  jump_z_lim: -17
+  z_insert: -150
+
 
 # CAMERA_MATRIX = np.array([[1.0, 0.0, 1.0],
 #                           [0.0, 1.0, 1.0],

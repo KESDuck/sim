@@ -35,6 +35,10 @@ class AppManager(QObject):
         self.cells_img_xy = None
         self.cell_index = -1 # Single source of truth for cell index
 
+        # keep track if it is batch inserting 
+        self.pause_insert = False
+
+
         # TODO: this determines screw boundaries
         self.capture_position_idx = 0
         self.conveyor_position_idx = 0
@@ -47,24 +51,15 @@ class AppManager(QObject):
         self.cell_index = index
         self.cell_index_changed.emit(index)  # Notify UI
 
-    def insert_all_in_view(self, capture_idx):
+    def insert_batch(self, capture_idx):
         """
-        Does not assume cell_index start at -1
-        TODO WIP
+        Insert bath for position given capture_idx
+        Automated from capturing to inserting all
+        TODO: work on it later
         """
         self.move_to_capture_position(capture_idx)
         self.capture_and_process(process=True)
-        while self.cell_index < len(self.cells_img_xy) - 1:
-            self.set_cell_index(self.cell_index + 1)
-            self.insert_single_cell()
-
-    def insert_single_cell(self):
-        if self.cell_index < 0 or self.cell_index >= len(self.cells_img_xy):
-            return  # Ignore invalid indices
-        
-        cX, cY = self.cells_img_xy[self.cell_index]
-        rX, rY = map_image_to_robot((cX, cY), self.homo_matrix)
-        self.robot.insert_single(rX, rY)
+        self.insert_all_in_view()
 
     def move_to_capture_position(self, idx):
         """
@@ -82,12 +77,37 @@ class AppManager(QObject):
             self.cells_img_xy = self.vision.centroids
             self.cell_index = -1
 
+    def insert_all_in_view(self):
+        """
+        Insert begin from cell_index, can be paused and resumed
+        Button to pause
+        TODO Stop if error shuch as socket not connected, if "ack" or "taskdone" not received after timeout
+        """
+
+        while self.cell_index < len(self.cells_img_xy) - 1:
+            if self.pause_insert:
+                break
+            self.set_cell_index(self.cell_index + 1)
+            self.jump_single_cell()
+
+    def toggle_pause_insert(self):
+        self.pause_insert = not self.pause_insert
+
+    def insert_single_cell(self):
+        if self.cell_index < 0 or self.cell_index >= len(self.cells_img_xy):
+            return  # Ignore invalid indices
+        
+        cX, cY = self.cells_img_xy[self.cell_index]
+        rX, rY = map_image_to_robot((cX, cY), self.homo_matrix)
+        self.robot.jump(rX, rY, config['robot']['z_insert'])
+        # self.robot.where()
+
+    def jump_single_cell(self):
+        logger.error("Jump single cell not implemented")
+
     def on_save_frame(self):
         if self.vision.frame_camera_stored:
             save_image(self.vision.frame_camera_stored, config["save_folder"])
-
-    def jump_xy(self):
-        pass
 
     def echo_test(self):
         self.robot.echo()
@@ -118,6 +138,7 @@ class AppManager(QObject):
         else:
             robot_x, robot_y = self.cross_robo_xy
             logger.info(f"Camera: ({cam_x}, {cam_y}), Robot: ({robot_x:.2f}, {robot_y:.2f})")
+
 
     def close(self):
         # close socket connection

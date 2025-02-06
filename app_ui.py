@@ -71,14 +71,14 @@ class AppUI(QWidget):
         self.save_frame_button = QPushButton("Save Frame", self)
         self.save_frame_button.clicked.connect(self.on_save_frame)
         
-        self.jump_xy_button = QPushButton("Jump XY", self)
-        self.jump_xy_button.clicked.connect(self.app_manager.jump_xy)
+        # self.jump_xy_button = QPushButton("Jump", self)
+        # self.jump_xy_button.clicked.connect(self.app_manager.jump_single_cell)
 
         self.insert_single_button = QPushButton("Insert Single", self)
         self.insert_single_button.clicked.connect(self.app_manager.insert_single_cell)
 
         self.insert_batch_button = QPushButton("Insert Batch", self)
-        self.insert_batch_button.clicked.connect(self.app_manager.insert_all_in_view)
+        self.insert_batch_button.clicked.connect(self.toggle_batch_insert)
 
         self.echo_button = QPushButton("Echo", self)
         self.echo_button.clicked.connect(self.app_manager.echo_test)
@@ -92,7 +92,7 @@ class AppUI(QWidget):
         button_layout.addWidget(self.view_states)
         button_layout.addWidget(self.save_frame_button)
         button_layout.addWidget(self.cell_spinbox)
-        button_layout.addWidget(self.jump_xy_button)
+        # button_layout.addWidget(self.jump_xy_button)
         button_layout.addWidget(self.insert_single_button)
         button_layout.addWidget(self.insert_batch_button)
         button_layout.addWidget(self.echo_button)
@@ -204,6 +204,15 @@ class AppUI(QWidget):
 
     def on_save_frame(self):
         save_image(self.disp_frame, "save/")
+
+    def toggle_batch_insert(self):
+        self.app_manager.toggle_pause_insert()
+        if not self.app_manager.pause_insert:
+            self.insert_batch_button.setText("Pause Insert")
+            self.app_manager.insert_all_in_view()
+        else:
+            self.insert_batch_button.setText("Insert Batch")
+            
 
     def update_cross_position(self, scene_pos):
         """

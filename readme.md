@@ -2,8 +2,10 @@
 This application is a robot vision system that integrates a camera, robot arm, and user interface for precise operations like screw insertion. It consists of multiple components that communicate through message protocols, and it features a homography-based calibration system to convert camera coordinates to robot coordinates.
 
 ## Ideal operation (happy path)
-1. hardware setup: feeder is set to the correct screw diameter using precision stairs. Add screws to the feeder (or vibratory feeder)
-2. Insert frame and web plate, secure on conveyor
+1. Setup
+    - Feeder is set to the correct screw diameter using precision stairs. Add screws to the feeder (or vibratory feeder)
+    - Insert frame and web plate, secure on conveyor
+    - Turn on robot and computers. Make sure all is connected with ethernet: robot controller, python script computer, RC+ computer, camera. Start python script and RC+ program.
 3. Press start, robot starts main insertion operation
     a. Robot move camera to position
     b. Camera grab frame

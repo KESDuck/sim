@@ -73,19 +73,27 @@ class RobotSocket(QObject):
             logger.info("Closing connection...")
             self.socket.disconnectFromHost()
 
-    def _wait_for_message(self, expected_message, timeout):
-        """Wait for a specific message from the robot."""
+    def _wait_for_message(self, expected_message, timeout=5000):
+        """Wait for a specific message from the robot with a timeout."""
         from PyQt5.QtCore import QEventLoop, QTimer
+
+        logger.debug(f"Waiting for message: {expected_message} (Timeout: {timeout}ms)")
 
         loop = QEventLoop()
         timer = QTimer()
         timer.setSingleShot(True)
 
+        message_received = False  # Track if we got the expected message
+
         def on_timer_timeout():
+            logger.debug(f"Timeout waiting for: {expected_message}")
             loop.quit()
 
         def on_message_received(message):
+            nonlocal message_received
             if message == expected_message:
+                logger.debug(f"Received expected message: {message}")
+                message_received = True  # Mark as received
                 timer.stop()
                 loop.quit()
 
@@ -95,10 +103,11 @@ class RobotSocket(QObject):
         timer.start(timeout)
         loop.exec()
 
+        # Disconnect signals
         self.response_received.disconnect(on_message_received)
         timer.timeout.disconnect(on_timer_timeout)
 
-        return not timer.isActive()
+        return message_received  # Return True if received, False if timed out
 
     def on_ready_read(self):
         """Handle incoming data from the robot."""

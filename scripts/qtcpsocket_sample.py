@@ -17,7 +17,7 @@ class Client(QObject):
         self.timer.timeout.connect(self.send_message)
 
         # Start connecting (non-blocking)
-        self.socket.connectToHost('127.0.0.1', 60666)
+        self.socket.connectToHost('192.168.0.1', 8501)
 
     def on_connected(self):
         print("Connected to server.")
