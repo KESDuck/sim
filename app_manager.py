@@ -46,11 +46,6 @@ class AppManager(QObject):
         self.capture_positions = config["capture_positions"]
         self.homo_matrix = config["homo_matrix"]
 
-    def set_cell_index(self, index):
-        """Update cell index and notify UI."""
-        self.cell_index = index
-        self.cell_index_changed.emit(index)  # Notify UI
-
     def insert_batch(self, capture_idx):
         """
         Insert bath for position given capture_idx
@@ -75,7 +70,7 @@ class AppManager(QObject):
         self.vision.capture_and_process(process)
         if process:
             self.cells_img_xy = self.vision.centroids
-            self.cell_index = -1
+            self.set_cell_index(-1)
 
     def insert_all_in_view(self):
         """
@@ -87,23 +82,29 @@ class AppManager(QObject):
         while self.cell_index < len(self.cells_img_xy) - 1:
             if self.pause_insert:
                 break
+
             self.set_cell_index(self.cell_index + 1)
-            self.jump_single_cell()
 
-    def toggle_pause_insert(self):
-        self.pause_insert = not self.pause_insert
+            # If return false that means there is something wrong
+            if not self.cell_action(action="jump"):
+                # TODO: pause the UI here
+                logger.warning("Something is wrong, please check.")
+                break
 
-    def insert_single_cell(self):
+    def cell_action(self, action="insert"):
         if self.cell_index < 0 or self.cell_index >= len(self.cells_img_xy):
+            logger.warning("Bad cell index.")
             return  # Ignore invalid indices
         
         cX, cY = self.cells_img_xy[self.cell_index]
         rX, rY = map_image_to_robot((cX, cY), self.homo_matrix)
-        self.robot.jump(rX, rY, config['robot']['z_insert'])
-        # self.robot.where()
 
-    def jump_single_cell(self):
-        logger.error("Jump single cell not implemented")
+        if action == "insert":
+            return self.robot.insert(rX, rY, config['robot']['z_insert'])
+        elif action == "jump":
+            return self.robot.jump(rX, rY, config['robot']['z_insert'])
+        else:
+            logger.error("Bad action")
 
     def on_save_frame(self):
         if self.vision.frame_camera_stored:
@@ -111,9 +112,6 @@ class AppManager(QObject):
 
     def echo_test(self):
         self.robot.echo()
-
-    def on_save_frame(self):
-        pass
 
     def shift_cross(self, dx=0, dy=0):
         """In camera position
@@ -139,6 +137,17 @@ class AppManager(QObject):
             robot_x, robot_y = self.cross_robo_xy
             logger.info(f"Camera: ({cam_x}, {cam_y}), Robot: ({robot_x:.2f}, {robot_y:.2f})")
 
+    def set_cell_index(self, index):
+        """Update cell index and notify UI."""
+        self.cell_index = index
+        self.cell_index_changed.emit(index)  # Notify UI
+
+    def toggle_pause_insert(self):
+        self.pause_insert = not self.pause_insert
+        if self.pause_insert:
+            logger.info(f"Insertion paused at {self.cell_index}")
+        else:
+            logger.info(f"Insertion resumed at {self.cell_index}")
 
     def close(self):
         # close socket connection
