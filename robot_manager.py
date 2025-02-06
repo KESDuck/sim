@@ -19,31 +19,30 @@ class RobotManager:
         Received: echo 0 1 2 3
         Received: taskdone
         """
-        self.client.send_command(f"echo")
+        return self.client.send_command(f"echo")
 
     def where(self):
         """
         TODO Needed to check if camera is at right position. Should return robot position as list of int
         Example output:
-        [Socket][INFO] Sending: where
-        [Socket][INFO] Received: ack
-        [Socket][INFO] Received: X: 50.0888, Y: 470.001, Z: -0.0329844, U: 0.0062027
-        [Socket][INFO] Received: taskdone
+        Sending: where
+        Received: ack
+        Received: X: 50.0888, Y: 470.001, Z: -0.0329844, U: 0.0062027
+        Received: taskdone
         """
-        self.client.send_command(f"where")
+        return self.client.send_command(f"where")
 
     def move(self, x, y, z, u):
         command = f"move {x:.2f} {y:.2f} {z:.2f} {u:.2f}"
-        self.client.send_command(command)
-        self.last_position = [x, y, z, u]
+        return self.client.send_command(command)
 
     def jump(self, x, y, z):
         command = f"jump {x:.2f} {y:.2f} {z:.2f} 0.0"
-        self.client.send_command(command)
+        return self.client.send_command(command)
 
-    def insert_single(self, x, y):
-        command = f"insert {x:.2f} {y:.2f} -140.0 0.0"
-        self.client.send_command(command)
+    def insert(self, x, y, z):
+        command = f"insert {x:.2f} {y:.2f} {z:.2f} 0.0"
+        return self.client.send_command(command)
 
     def close(self):
         self.client.close()
@@ -77,19 +76,3 @@ if __name__ == "__main__":
     finally:
         robot.close()
         print("Robot connection closed.")
-
-
-
-#     def jump_xy(self):
-#         if self.robo_cross_pos is not None:
-#             x, y = self.robo_cross_pos
-#             self.robot_client.send_command(f"jump {x:.2f} {y:.2f} -75 180")
-#             self.robot_last_position = [x, y, -75, 180]
-
-#     def insert_single(self):
-#         """Insert single screw (cross position)"""
-#         if self.robo_cross_pos is not None:
-#             x, y = self.robo_cross_pos
-#             self.robot_client.send_command(f"insert {x:.2f} {y:.2f} -140 180")
-#             self.robot_last_position = None
-    

@@ -77,7 +77,7 @@ class RobotSocket(QObject):
         """Wait for a specific message from the robot with a timeout."""
         from PyQt5.QtCore import QEventLoop, QTimer
 
-        logger.debug(f"Waiting for message: {expected_message} (Timeout: {timeout}ms)")
+        # logger.debug(f"Waiting for message: {expected_message} (Timeout: {timeout}ms)")
 
         loop = QEventLoop()
         timer = QTimer()
@@ -92,7 +92,7 @@ class RobotSocket(QObject):
         def on_message_received(message):
             nonlocal message_received
             if message == expected_message:
-                logger.debug(f"Received expected message: {message}")
+                # logger.debug(f"Received expected message: {message}")
                 message_received = True  # Mark as received
                 timer.stop()
                 loop.quit()

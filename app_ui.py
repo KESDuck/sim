@@ -75,7 +75,7 @@ class AppUI(QWidget):
         # self.jump_xy_button.clicked.connect(self.app_manager.jump_single_cell)
 
         self.insert_single_button = QPushButton("Insert Single", self)
-        self.insert_single_button.clicked.connect(self.app_manager.insert_single_cell)
+        self.insert_single_button.clicked.connect(lambda: self.app_manager.cell_action(action="jump"))
 
         self.insert_batch_button = QPushButton("Insert Batch", self)
         self.insert_batch_button.clicked.connect(self.toggle_batch_insert)
@@ -209,7 +209,7 @@ class AppUI(QWidget):
         self.app_manager.toggle_pause_insert()
         if not self.app_manager.pause_insert:
             self.insert_batch_button.setText("Pause Insert")
-            self.app_manager.insert_all_in_view()
+            self.app_manager.insert_all_in_view() # TODO: change to insert_batch for capturing
         else:
             self.insert_batch_button.setText("Insert Batch")
             
