@@ -1,6 +1,6 @@
 from PyQt5.QtCore import QObject, pyqtSignal
 import numpy as np
-
+import time
 import yaml
 from logger_config import get_logger
 from robot_manager import RobotManager
@@ -21,6 +21,7 @@ class AppManager(QObject):
     Robot position, send cell positions to robot.
     """
     cell_index_changed = pyqtSignal(int)
+    cell_max_changed = pyqtSignal(int)
 
     def __init__(self):
         super().__init__()  # Required for QObject signals to work
@@ -50,27 +51,47 @@ class AppManager(QObject):
         """
         Insert bath for position given capture_idx
         Automated from capturing to inserting all
-        TODO: work on it later
         """
-        self.move_to_capture_position(capture_idx)
-        self.capture_and_process(process=True)
+        self.position_and_capture(capture_idx)
         self.insert_all_in_view()
 
-    def move_to_capture_position(self, idx):
+    def position_and_capture(self, idx):
         """
-        Move robot for vision position. Move conveyor for conveyor position
+        Move robot for vision position. 
+        Capture and process
+        Then lower the z to allow for jump limZ
+        TODO: Move conveyor for conveyor position
         """
+        
         x, y, z, u = self.capture_positions[idx]
-        self.robot.move(x, y, z, u)
+        self.robot.jump(x, y, z, 0)
+        for attempts in range(3):
+            if self.capture_and_process(process=True):
+                break
+            logger.info("Capture failure, retrying...")
+            time.sleep(1)
+        else:
+            logger.error("All capture attempts failed")
+            return False
+        
+        self.robot.jump(x, y, -18., 0)
+        return True
 
     def capture_and_process(self, process=False):
         """
         TODO: check z. sometimes it is not in position, do not capture if not in correct z height
+        Returns True/False like vision.capture_and_process()
         """
-        self.vision.capture_and_process(process)
-        if process:
-            self.cells_img_xy = self.vision.centroids
-            self.set_cell_index(-1)
+        if self.vision.capture_and_process(process):
+            if process:
+                self.cells_img_xy = self.vision.centroids
+                self.set_cell_index(-1)
+                max_value = len(self.cells_img_xy) - 1 if self.cells_img_xy else 0
+                # logger.debug("Setting spinbox max via signal")
+                self.cell_max_changed.emit(max_value) 
+            return True
+        else:
+            return False
 
     def insert_all_in_view(self):
         """
@@ -79,32 +100,48 @@ class AppManager(QObject):
         TODO Stop if error shuch as socket not connected, if "ack" or "taskdone" not received after timeout
         """
 
-        while self.cell_index < len(self.cells_img_xy) - 1:
-            if self.pause_insert:
-                break
+        try:
+            while self.cell_index < len(self.cells_img_xy) - 1:
+                if self.pause_insert:
+                    break
+                self.set_cell_index(self.cell_index + 1)
+                self.cell_action("insert")
+        except Exception as e:
+            logger.error(f"Error during cell insertion: {e}")
 
-            self.set_cell_index(self.cell_index + 1)
 
-            # If return false that means there is something wrong
-            if not self.cell_action(action="jump"):
-                # TODO: pause the UI here
-                logger.warning("Something is wrong, please check.")
-                break
+        # while self.cell_index < len(self.cells_img_xy) - 1:
+        #     if self.pause_insert:
+        #         break
+
+        #     self.set_cell_index(self.cell_index + 1)
+
+        #     # If return false that means there is something wrong
+        #     # Will wait until cell_action is completed
+        #     if not self.cell_action(action="jump"):
+        #         # TODO: pause the UI here not just insertion
+        #         logger.warning("Something is wrong, please check.")
+        #         break
 
     def cell_action(self, action="insert"):
         if self.cell_index < 0 or self.cell_index >= len(self.cells_img_xy):
-            logger.warning("Bad cell index.")
-            return  # Ignore invalid indices
+            logger.warn("Bad cell index")
+            return False
         
         cX, cY = self.cells_img_xy[self.cell_index]
         rX, rY = map_image_to_robot((cX, cY), self.homo_matrix)
 
         if action == "insert":
-            return self.robot.insert(rX, rY, config['robot']['z_insert'])
+            success = self.robot.insert(rX, rY, config['robot']['z_insert'], 0)
         elif action == "jump":
-            return self.robot.jump(rX, rY, config['robot']['z_insert'])
+            success = self.robot.jump(rX, rY, config['robot']['z_insert'], 0)
         else:
-            logger.error("Bad action")
+            raise ValueError("Bad action")
+
+        if not success:
+            raise RuntimeError(f"Robot failed to execute action: {action}")
+        
+        return success
 
     def on_save_frame(self):
         if self.vision.frame_camera_stored:
@@ -116,6 +153,7 @@ class AppManager(QObject):
     def shift_cross(self, dx=0, dy=0):
         """In camera position
         # TODO: check for boundaries of the cross
+        # TODO: allow for half step movement
         """
         x, y = self.cross_cam_xy
         self.set_cross_position(x+dx, y+dy)
@@ -128,14 +166,16 @@ class AppManager(QObject):
         """For fine tuning homography use.
         Save at least 9 robot position and current cross position pair to recalibrate
 
-        Print format: Camera: (123, 456), Robot: (123.45, 678.90)
+        Print format: Camera: ( 123.0, 1456.0), Robot: (123.45, 678.90)
+        TODO: change format to xxxx.x
         """
         cam_x, cam_y = self.cross_cam_xy
+        
         if self.cross_robo_xy is None:
-            logger.info(f"Camera: ({cam_x}, {cam_y}), Robot: (-, -)")
+            logger.info(f"Camera: ({cam_x:6.1f}, {cam_y:6.1f}), Robot: (-, -)")
         else:
             robot_x, robot_y = self.cross_robo_xy
-            logger.info(f"Camera: ({cam_x}, {cam_y}), Robot: ({robot_x:.2f}, {robot_y:.2f})")
+            logger.info(f"Camera: ({cam_x:6.1f}, {cam_y:6.1f}), Robot: ({robot_x:7.2f}, {robot_y:7.2f})")
 
     def set_cell_index(self, index):
         """Update cell index and notify UI."""

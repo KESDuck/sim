@@ -38,7 +38,7 @@ class AppUI(QWidget):
         logger.info("Press R Key to note current cross position")
 
         # pause state right after starting
-        self.view_states.setCurrentIndex(1)
+        self.ui_view_states.setCurrentIndex(1)
         self.capture_image()
         
 
@@ -54,48 +54,49 @@ class AppUI(QWidget):
         self.pixmap_item = None  # Placeholder for the image item
 
         ##### Cell index spinbox #####
-        self.cell_spinbox = QSpinBox() # stores the selected cell index
-        self.cell_spinbox.setRange(-1, 0)
-        self.app_manager.cell_index_changed.connect(self.cell_spinbox.setValue) # sync spin box with cell value
-        self.cell_spinbox.valueChanged.connect(self.on_cell_spinbox_changed)
+        self.ui_cell_spinbox = QSpinBox() # stores the selected cell index
+        self.ui_cell_spinbox.setRange(-1, 0)
+        self.app_manager.cell_max_changed.connect(self.ui_cell_spinbox.setMaximum)
+        self.app_manager.cell_index_changed.connect(self.ui_cell_spinbox.setValue) # sync spin box with cell value
+        self.ui_cell_spinbox.valueChanged.connect(self.on_cell_spinbox_changed)
 
         ##### UI States #####
-        self.view_states = QComboBox()
-        self.view_states.addItems(["live", "paused orig", "paused thres", "paused contours"])
-        self.view_states.currentTextChanged.connect(self.view_state_changed)
+        self.ui_view_states = QComboBox()
+        self.ui_view_states.addItems(["live", "paused orig", "paused thres", "paused contours"])
+        self.ui_view_states.currentTextChanged.connect(self.view_state_changed)
 
         ##### Control buttons #####
-        self.capture_button = QPushButton("Process", self)
-        self.capture_button.clicked.connect(self.capture_image)
+        self.ui_capture_button = QPushButton("Process", self)
+        self.ui_capture_button.clicked.connect(self.capture_image)
 
-        self.save_frame_button = QPushButton("Save Frame", self)
-        self.save_frame_button.clicked.connect(self.on_save_frame)
+        self.ui_save_frame_button = QPushButton("Save Frame", self)
+        self.ui_save_frame_button.clicked.connect(self.on_save_frame)
         
-        # self.jump_xy_button = QPushButton("Jump", self)
-        # self.jump_xy_button.clicked.connect(self.app_manager.jump_single_cell)
+        self.ui_move_to_capture = QPushButton("Go Capture", self)
+        self.ui_move_to_capture.clicked.connect(self.app_manager.position_and_capture)
 
-        self.insert_single_button = QPushButton("Insert Single", self)
-        self.insert_single_button.clicked.connect(lambda: self.app_manager.cell_action(action="jump"))
+        self.ui_insert_single_button = QPushButton("Insert Single", self)
+        self.ui_insert_single_button.clicked.connect(lambda: self.app_manager.cell_action(action="insert"))
 
-        self.insert_batch_button = QPushButton("Insert Batch", self)
-        self.insert_batch_button.clicked.connect(self.toggle_batch_insert)
+        self.ui_insert_batch_button = QPushButton("Insert Batch", self)
+        self.ui_insert_batch_button.clicked.connect(self.toggle_batch_insert)
 
-        self.echo_button = QPushButton("Echo", self)
-        self.echo_button.clicked.connect(self.app_manager.echo_test)
+        self.ui_echo_button = QPushButton("Echo", self)
+        self.ui_echo_button.clicked.connect(self.app_manager.echo_test)
 
         ##### Layout #####
         layout = QVBoxLayout()
         layout.addWidget(self.graphics_view)
 
         button_layout = QHBoxLayout()
-        button_layout.addWidget(self.capture_button)
-        button_layout.addWidget(self.view_states)
-        button_layout.addWidget(self.save_frame_button)
-        button_layout.addWidget(self.cell_spinbox)
-        # button_layout.addWidget(self.jump_xy_button)
-        button_layout.addWidget(self.insert_single_button)
-        button_layout.addWidget(self.insert_batch_button)
-        button_layout.addWidget(self.echo_button)
+        button_layout.addWidget(self.ui_capture_button)
+        button_layout.addWidget(self.ui_view_states)
+        button_layout.addWidget(self.ui_save_frame_button)
+        button_layout.addWidget(self.ui_cell_spinbox)
+        button_layout.addWidget(self.ui_move_to_capture)
+        button_layout.addWidget(self.ui_insert_single_button)
+        button_layout.addWidget(self.ui_insert_batch_button)
+        button_layout.addWidget(self.ui_echo_button)
 
         layout.addLayout(button_layout)
         self.setLayout(layout)
@@ -111,7 +112,7 @@ class AppUI(QWidget):
         """
         self.screen_timer.start(100)  # overlay remains active in paused states
 
-        if self.view_states.currentText() == "live":
+        if self.ui_view_states.currentText() == "live":
             self.capture_timer.start(1000)  # live updates
         else:
             self.capture_timer.stop() # use stored image to display
@@ -122,15 +123,18 @@ class AppUI(QWidget):
         Decoupled from update screen
         Triggers when process button is clicked, should not trigger otherwise
         Capture only if previous capture task is done
+        TODO: to fix - process image does not work if view_states is live
         """
-        cur_state = self.view_states.currentText()
+        cur_state = self.ui_view_states.currentText()
 
         # capture image, process if needed
         if cur_state == "live":
             self.app_manager.capture_and_process(process=False)
         else:
-            self.app_manager.capture_and_process(process=True)
-            self.cell_spinbox.setMaximum(len(self.app_manager.cells_img_xy)-1)
+            if self.app_manager.capture_and_process(process=True):
+                pass
+            else:
+                logger.error("Process image failure")
 
     def update_screen(self):
         """
@@ -141,7 +145,7 @@ class AppUI(QWidget):
         Make a copy and draw cross
         Works for both grayscale or RGB frame
         """
-        cur_state = self.view_states.currentText()
+        cur_state = self.ui_view_states.currentText()
 
         # store captured image
         if cur_state == "live":
@@ -158,27 +162,32 @@ class AppUI(QWidget):
 
         if self.disp_frame is None:
             # warning if there is no processed screen
-            if cur_state != "live":
+            if cur_state == "live":
+                logger.warning("Skipped frame")
+            else: # processed state
                 logger.warning("Nothing to display, please capture and process first")
             return
         else:
-            # copy the frame away from vision manager (so later can be saved)
+            # copy the frame away from vision manager (so later can be saved?) TODO: improve comment 
             self.disp_frame = self.disp_frame.copy()
 
-        frame = draw_points(self.disp_frame, self.app_manager.cells_img_xy, self.app_manager.cell_index, size=10)
+        if cur_state != "live": # processed state
+            frame = draw_points(self.disp_frame, self.app_manager.cells_img_xy, self.app_manager.cell_index, size=10)
+        else:
+            frame = self.disp_frame
 
         x, y = self.app_manager.cross_cam_xy
         frame = draw_cross(frame, x, y, size=30)
 
-        # Convert frame to QImage
-        if len(frame.shape) == 2:  # Grayscale frame, likely not needed draw_cross convert to color
-            height, width = frame.shape
-            bytes_per_line = width
-            q_img = QImage(frame.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
-        else:  # RGB frame
-            height, width, channels = frame.shape
-            bytes_per_line = channels * width
-            q_img = QImage(frame.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        # # Convert frame to QImage
+        # if len(frame.shape) == 2:  # Grayscale frame, likely not needed draw_cross convert to color
+        #     height, width = frame.shape
+        #     bytes_per_line = width
+        #     q_img = QImage(frame.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
+        # else:  # RGB frame
+        height, width, channels = frame.shape
+        bytes_per_line = channels * width
+        q_img = QImage(frame.data, width, height, bytes_per_line, QImage.Format_RGB888)
 
         # Update the pixmap in the scene
         pixmap = QPixmap.fromImage(q_img)
@@ -208,10 +217,10 @@ class AppUI(QWidget):
     def toggle_batch_insert(self):
         self.app_manager.toggle_pause_insert()
         if not self.app_manager.pause_insert:
-            self.insert_batch_button.setText("Pause Insert")
+            self.ui_insert_batch_button.setText("Pause Insert")
             self.app_manager.insert_all_in_view() # TODO: change to insert_batch for capturing
         else:
-            self.insert_batch_button.setText("Insert Batch")
+            self.ui_insert_batch_button.setText("Insert Batch")
             
 
     def update_cross_position(self, scene_pos):
