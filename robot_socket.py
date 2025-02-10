@@ -41,7 +41,7 @@ class RobotSocket(QObject):
         if self.reconnect_timer.isActive():
             self.reconnect_timer.stop()
 
-    def send_command(self, command, timeout_ack=1000, timeout_task=5000):
+    def send_command(self, command, timeout_ack=1000, timeout_task=20000):
         """Send a command and wait for acknowledgment and task completion.
            Timeout in ms(0.001s)"""
         if self.socket.state() != QTcpSocket.ConnectedState:

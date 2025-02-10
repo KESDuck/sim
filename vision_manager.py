@@ -25,7 +25,8 @@ class VisionManager():
 
     def get_first_frame(self):
         frame = self.camera.get_frame()
-        logger.info(f"Frame shape: {frame.shape}")
+        if frame is not None:
+            logger.info(f"Frame shape: {frame.shape}")
 
     def capture_and_process(self, process=False):
         """
@@ -34,6 +35,7 @@ class VisionManager():
         Does not return anything
         Store the frames in VisionManager instance: frame_camera, frame_threshold, frame_contour
         Centroids location is also stored
+        Returns True if capture and process succeed else False
         """
 
         # TODO: add these to param
@@ -52,9 +54,14 @@ class VisionManager():
         if not process:
             # get frame (preprocessed)
             self.frame_camera_live = self.camera.get_frame() # grayscale image
+            if self.frame_camera_live is None:
+                return False
+
 
         else:
             self.frame_camera_stored = self.camera.get_frame()
+            if self.frame_camera_stored is None:
+                return False
 
             # threshold
             _, thres = cv.threshold(self.frame_camera_stored, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
@@ -92,6 +99,8 @@ class VisionManager():
             self.centroids = sort_centroids(centroids)
 
             logger.info(f"Total centroids found: {len(self.centroids)}")
+
+        return True
 
     def next_centroid(self):
         """Point self.cam_cross_pos to the next centroid in self.centroids"""

@@ -88,14 +88,16 @@ Python:
 ## Homography Calibration
 Teach robot tooling (in Robot Manager) 
 1. setup hardware:
-    - known points
-2. take picture and note their points in image coordinate
-3. let robot go to those positions
+    - Have a matrix of known points. The points should be at Z-axis of the insertion plate, plane parallel to the ground. (Place it slightly above the 3x3)
+    - Turn gripper: move z up and down to see if it is straight. If not loosen the screws to adjust.
+    - Rotate gripper make sure it is centered. If not reteach the tool in RC+.
+    - Make sure the grid is stable so it will not move if robot touch it
+2. Move camera to correct position. Process image and note their points in image coordinate. Save the image in case needed later.
+3. let robot go to those positions and note the positions.
+4. Move the camera back to capture position, make sure it is not shifted
+5. Feed the data to find_homography.py and make sure error is low (<0.2mm). Put the homography matrix in config.yml
 
 
-1. 
-1. Start both the robot script and vision app
-2. 
 
 ## Insert ActionLoop routine
 start if CommandReady == 1 and RobotCommand == "insert"

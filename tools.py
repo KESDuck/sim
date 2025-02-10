@@ -41,11 +41,11 @@ def draw_points(image, points, current_index, size=5):
     for i in range(len(points)):
         color = (0, 0, 0) # red, green, blue
         if i < current_index:
-            color = (255, 0, 0)
+            color = (0, 125, 255)
         elif i == current_index:
-            color = (255, 0, 255)
+            color = (0, 255, 0)
         elif i > current_index:
-            color = (0, 0, 255)
+            color = (255, 0, 0)
 
         cv.circle(image, points[i], size, color, -1)
     return image
@@ -81,6 +81,8 @@ def sort_centroids(centroids, x_tolerance=30):
 
     TODO: understand this...
     """
+    if len(centroids) == 0:
+        return []
     # Step 1: Sort by x-coordinates first
     centroids.sort(key=lambda c: c[0])  
 

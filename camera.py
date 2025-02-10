@@ -15,7 +15,10 @@ class CameraBase(ABC):
     """
     @abstractmethod
     def get_frame(self):
-        """Capture and preprocess a frame."""
+        """
+        Capture and preprocess a frame.
+        Return None if no frame
+        """
         pass
 
     @abstractmethod
@@ -34,7 +37,7 @@ class USBCamera(CameraBase):
             raise RuntimeError(f"Failed to initialize USB camera {cam_num}.")
         self.camera_matrix = camera_matrix
         self.dist_coeffs = dist_coeffs
-        logger.info(f"USB camera {cam_num} initialized.")
+        logger.info(f"##### USB camera {cam_num} initialized. #####")
 
     def get_frame(self):
         """Capture and preprocess a frame from the USB camera."""
@@ -70,7 +73,7 @@ class PylonCamera(CameraBase):
         self.dist_coeffs = dist_coeffs
         model_name = self.camera.GetDeviceInfo().GetModelName()
         camera_ip = self.camera.GetDeviceInfo().GetIpAddress()
-        logger.info(f"Pylon camera connected: {model_name} ({camera_ip})")
+        logger.info(f"##### Pylon camera connected: {model_name} ({camera_ip}) #####")
 
     def get_frame(self):
         """Capture and preprocess a frame from the Pylon camera."""
@@ -115,8 +118,10 @@ class PylonCamera(CameraBase):
 class FileMockInterface:
     def __init__(self, path):
         self.path = path
+        print("##### MOCK CAMERA INITIALIZED #####")
 
     def get_frame(self):
+        """TODO: return none if cannot read"""
         return cv.imread(self.path, cv.IMREAD_GRAYSCALE)
 
     def release(self):
@@ -147,6 +152,6 @@ class CameraHandler:
         self.camera.release()
 
 if __name__ == "__main__":
-    camera = CameraHandler(cam_type="usb")
+    camera = CameraHandler(cam_type="pylon")
     test_frame = camera.get_frame()
     print(test_frame[0])

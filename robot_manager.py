@@ -36,12 +36,12 @@ class RobotManager:
         command = f"move {x:.2f} {y:.2f} {z:.2f} {u:.2f}"
         return self.client.send_command(command)
 
-    def jump(self, x, y, z):
-        command = f"jump {x:.2f} {y:.2f} {z:.2f} 0.0"
+    def jump(self, x, y, z, u, limZ=0):
+        command = f"jump {x:.2f} {y:.2f} {z:.2f} {u:.2f} {limZ:.2f}"
         return self.client.send_command(command)
 
-    def insert(self, x, y, z):
-        command = f"insert {x:.2f} {y:.2f} {z:.2f} 0.0"
+    def insert(self, x, y, z, u):
+        command = f"insert {x:.2f} {y:.2f} 0 0"
         return self.client.send_command(command)
 
     def close(self):
