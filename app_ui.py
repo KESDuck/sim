@@ -129,9 +129,9 @@ class AppUI(QWidget):
 
         # capture image, process if needed
         if cur_state == "live":
-            self.app_manager.capture_and_process(process=False)
+            self.app_manager.live_capture()
         else:
-            if self.app_manager.capture_and_process(process=True):
+            if self.app_manager.capture_and_process():
                 pass
             else:
                 logger.error("Process image failure")
@@ -180,11 +180,6 @@ class AppUI(QWidget):
         frame = draw_cross(frame, x, y, size=30)
 
         # # Convert frame to QImage
-        # if len(frame.shape) == 2:  # Grayscale frame, likely not needed draw_cross convert to color
-        #     height, width = frame.shape
-        #     bytes_per_line = width
-        #     q_img = QImage(frame.data, width, height, bytes_per_line, QImage.Format_Grayscale8)
-        # else:  # RGB frame
         height, width, channels = frame.shape
         bytes_per_line = channels * width
         q_img = QImage(frame.data, width, height, bytes_per_line, QImage.Format_RGB888)
@@ -217,7 +212,7 @@ class AppUI(QWidget):
     def toggle_batch_insert(self):
         self.app_manager.toggle_pause_insert()
         if not self.app_manager.pause_insert:
-            self.ui_insert_batch_button.setText("Pause Insert")
+            self.ui_insert_batch_button.setText("Paused Insert")
             self.app_manager.insert_all_in_view() # TODO: change to insert_batch for capturing
         else:
             self.ui_insert_batch_button.setText("Insert Batch")

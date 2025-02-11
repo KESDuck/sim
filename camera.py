@@ -65,6 +65,7 @@ class USBCamera(CameraBase):
 class PylonCamera(CameraBase):
     """
     Handles Pylon camera operations, including frame capture and preprocessing.
+    TODO: add retry logic
     """
     def __init__(self, camera_matrix=None, dist_coeffs=None):
         self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
