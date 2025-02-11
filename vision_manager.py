@@ -23,16 +23,26 @@ class VisionManager():
         self.frame_contour = None # with contour
         self.centroids = None # list of cenrtroids
 
-    def get_first_frame(self):
+    def get_first_frame(self) :
+        """
+        TODO: add retry logic
+        """
         frame = self.camera.get_frame()
         if frame is not None:
             logger.info(f"Frame shape: {frame.shape}")
 
-    def capture_and_process(self, process=False):
+    def live_capture(self) -> bool:
+        """
+        Get camera frame without process
+        """
+        self.frame_camera_live = self.camera.get_frame() # grayscale image
+        if self.frame_camera_live is None:
+            return False
+        return True
+
+    def capture_and_process(self) -> bool:
         """
         Process takes more time, so should not do it unless user told to
-        By default it should store frame directly from camera (for displaying live image).
-        Does not return anything
         Store the frames in VisionManager instance: frame_camera, frame_threshold, frame_contour
         Centroids location is also stored
         Returns True if capture and process succeed else False
@@ -51,54 +61,46 @@ class VisionManager():
         crop_region = None
         alpha = 0.5
 
-        if not process:
-            # get frame (preprocessed)
-            self.frame_camera_live = self.camera.get_frame() # grayscale image
-            if self.frame_camera_live is None:
-                return False
+        self.frame_camera_stored = self.camera.get_frame()
+        if self.frame_camera_stored is None:
+            return False
 
+        # threshold
+        _, thres = cv.threshold(self.frame_camera_stored, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
 
-        else:
-            self.frame_camera_stored = self.camera.get_frame()
-            if self.frame_camera_stored is None:
-                return False
+        # contours
+        contours, _ = cv.findContours(thres, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
-            # threshold
-            _, thres = cv.threshold(self.frame_camera_stored, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+        # Filter Contours based on contour area
+        filtered_contours = [cnt for cnt in contours if min_area < cv.contourArea(cnt) < max_area]
 
-            # contours
-            contours, _ = cv.findContours(thres, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        # Find Centroids
+        centroids = []
+        filtered_contours_2 = [] # based on selected centroids
+        for cnt in filtered_contours:
+            x, y, w, h = cv.boundingRect(cnt)
+            aspect_ratio = w / h
+            if 0.8 <= aspect_ratio <= 1.2:
+                M = cv.moments(cnt)
+                if M["m00"] != 0:
+                    cX = int(M["m10"] / M["m00"])
+                    cY = int(M["m01"] / M["m00"])
+                    if determine_bound((cX, cY), crop_region):
+                        filtered_contours_2.append(cnt)
+                        centroids.append((cX, cY))
 
-            # Filter Contours based on contour area
-            filtered_contours = [cnt for cnt in contours if min_area < cv.contourArea(cnt) < max_area]
+        ##### SAVING #####
+        # All the converting and returning
+        self.frame_threshold = cv.cvtColor(thres, cv.COLOR_GRAY2BGR)
 
-            # Find Centroids
-            centroids = []
-            filtered_contours_2 = [] # based on selected centroids
-            for cnt in filtered_contours:
-                x, y, w, h = cv.boundingRect(cnt)
-                aspect_ratio = w / h
-                if 0.8 <= aspect_ratio <= 1.2:
-                    M = cv.moments(cnt)
-                    if M["m00"] != 0:
-                        cX = int(M["m10"] / M["m00"])
-                        cY = int(M["m01"] / M["m00"])
-                        if determine_bound((cX, cY), crop_region):
-                            filtered_contours_2.append(cnt)
-                            centroids.append((cX, cY))
+        contour_overlay = self.frame_threshold.copy()
+        for cnt in filtered_contours_2: # Draw the contours
+            cv.drawContours(contour_overlay, [cnt], -1, (0, 255, 0), 2)  # Green for contours
 
-            ##### SAVING #####
-            # All the converting and returning
-            self.frame_threshold = cv.cvtColor(thres, cv.COLOR_GRAY2BGR)
+        self.frame_contour = contour_overlay
+        self.centroids = sort_centroids(centroids)
 
-            contour_overlay = self.frame_threshold.copy()
-            for cnt in filtered_contours_2: # Draw the contours
-                cv.drawContours(contour_overlay, [cnt], -1, (0, 255, 0), 2)  # Green for contours
-
-            self.frame_contour = contour_overlay
-            self.centroids = sort_centroids(centroids)
-
-            logger.info(f"Total centroids found: {len(self.centroids)}")
+        logger.info(f"Total centroids found: {len(self.centroids)}")
 
         return True
 

@@ -47,15 +47,23 @@ class AppManager(QObject):
         self.capture_positions = config["capture_positions"]
         self.homo_matrix = config["homo_matrix"]
 
-    def insert_batch(self, capture_idx):
+    def insert_batch(self, capture_idx) -> bool:
         """
         Insert bath for position given capture_idx
         Automated from capturing to inserting all
         """
-        self.position_and_capture(capture_idx)
-        self.insert_all_in_view()
+        if not self.position_and_capture(capture_idx):
+            logger.error(f"Capture failed at index {capture_idx}")
+            return False
+        
+        if not self.insert_all_in_view():
+            logger.error("Insertion failed.")
+            return False
+        
+        logger.info("Batch insertion completed successfully.")
+        return True
 
-    def position_and_capture(self, idx):
+    def position_and_capture(self, idx) -> bool:
         """
         Move robot for vision position. 
         Capture and process
@@ -66,7 +74,7 @@ class AppManager(QObject):
         x, y, z, u = self.capture_positions[idx]
         self.robot.jump(x, y, z, 0)
         for attempts in range(3):
-            if self.capture_and_process(process=True):
+            if self.capture_and_process():
                 break
             logger.info("Capture failure, retrying...")
             time.sleep(1)
@@ -77,55 +85,44 @@ class AppManager(QObject):
         self.robot.jump(x, y, -18., 0)
         return True
 
-    def capture_and_process(self, process=False):
+    def capture_and_process(self) -> bool:
         """
         TODO: check z. sometimes it is not in position, do not capture if not in correct z height
         Returns True/False like vision.capture_and_process()
         """
-        if self.vision.capture_and_process(process):
-            if process:
-                self.cells_img_xy = self.vision.centroids
-                self.set_cell_index(-1)
-                max_value = len(self.cells_img_xy) - 1 if self.cells_img_xy else 0
-                # logger.debug("Setting spinbox max via signal")
-                self.cell_max_changed.emit(max_value) 
+        if self.vision.capture_and_process():
+            self.cells_img_xy = self.vision.centroids
+            self.set_cell_index(-1)
+            max_value = len(self.cells_img_xy) - 1 if self.cells_img_xy else 0
+            # logger.debug("Setting spinbox max via signal")
+            self.cell_max_changed.emit(max_value) 
             return True
         else:
             return False
+    
+    def live_capture(self) -> bool:
+        return self.vision.live_capture()
 
-    def insert_all_in_view(self):
+    def insert_all_in_view(self) -> bool:
         """
         Insert begin from cell_index, can be paused and resumed
         Button to pause
         TODO Stop if error shuch as socket not connected, if "ack" or "taskdone" not received after timeout
         """
 
-        try:
-            while self.cell_index < len(self.cells_img_xy) - 1:
-                if self.pause_insert:
-                    break
-                self.set_cell_index(self.cell_index + 1)
-                self.cell_action("insert")
-        except Exception as e:
-            logger.error(f"Error during cell insertion: {e}")
+        while self.cell_index < len(self.cells_img_xy) - 1:
+            if self.pause_insert:
+                break
+            self.set_cell_index(self.cell_index + 1)
+            if not self.cell_action("insert"):
+                # TODO: pause the UI here not just insertion toggle_pause_insert
+                logger.error("Something is wrong, please check.")
+                return False
+        return True
 
-
-        # while self.cell_index < len(self.cells_img_xy) - 1:
-        #     if self.pause_insert:
-        #         break
-
-        #     self.set_cell_index(self.cell_index + 1)
-
-        #     # If return false that means there is something wrong
-        #     # Will wait until cell_action is completed
-        #     if not self.cell_action(action="jump"):
-        #         # TODO: pause the UI here not just insertion
-        #         logger.warning("Something is wrong, please check.")
-        #         break
-
-    def cell_action(self, action="insert"):
+    def cell_action(self, action="insert") -> bool:
         if self.cell_index < 0 or self.cell_index >= len(self.cells_img_xy):
-            logger.warn("Bad cell index")
+            logger.warning("Bad cell index")
             return False
         
         cX, cY = self.cells_img_xy[self.cell_index]
@@ -139,7 +136,7 @@ class AppManager(QObject):
             raise ValueError("Bad action")
 
         if not success:
-            raise RuntimeError(f"Robot failed to execute action: {action}")
+            return False
         
         return success
 
@@ -195,3 +192,5 @@ class AppManager(QObject):
 
         # close camera
         self.vision.close()
+
+

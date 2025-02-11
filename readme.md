@@ -1,3 +1,30 @@
+- [Usage:](#usage)
+  - [Ideal operation (happy path)](#ideal-operation-happy-path)
+  - [Dependency Tree](#dependency-tree)
+  - [UI](#ui)
+  - [Main insertion operation](#main-insertion-operation)
+  - [Camera Setup](#camera-setup)
+  - [Vision cycle](#vision-cycle)
+  - [Messaging protocol](#messaging-protocol)
+  - [Homography Calibration](#homography-calibration)
+  - [Insert ActionLoop routine](#insert-actionloop-routine)
+- [Milestones](#milestones)
+  - [1 Screw (2024-03-11)](#1-screw-2024-03-11)
+  - [10 screws (2024-11-26)](#10-screws-2024-11-26)
+  - [100 screws (2025-02-11)](#100-screws-2025-02-11)
+  - [1000 screws (TODO)](#1000-screws-todo)
+  - [10000 screws (TODO)](#10000-screws-todo)
+- [Reflections](#reflections)
+    - [1 screw](#1-screw)
+    - [10 screws](#10-screws)
+    - [100 screws](#100-screws)
+- [App manual unit tests:](#app-manual-unit-tests)
+    - [window](#window)
+    - [cross](#cross)
+    - [others](#others)
+- [Error Analysis](#error-analysis)
+
+
 # Usage:
 This application is a robot vision system that integrates a camera, robot arm, and user interface for precise operations like screw insertion. It consists of multiple components that communicate through message protocols, and it features a homography-based calibration system to convert camera coordinates to robot coordinates.
 
@@ -51,24 +78,25 @@ acA2500-14gm 16mm
 - 15x20 cells, 90 pixel per cell
 
 ## Vision cycle
-Flow of Operations:
-    Camera image (camera.py)
-    -> Modify color channel
+```
+Flow of Operations:  
+    Camera image (camera.py)  
+    -> Modify color channel  
     -> cv.undistort
 
-Process button (process_image):
-    -> save                    [self.frame_saved]
-    -> cv2.threshold and save  [self.frame_threshold]
-    -> cv2.findContours        [self.frame_contour]
-    -> filter contour based on size
-    -> find centroids
-    -> filter centroids based on location and store [self.centroids]
+Process button (process_image):  
+    -> save                    [self.frame_saved]  
+    -> cv2.threshold and save  [self.frame_threshold]  
+    -> cv2.findContours        [self.frame_contour]  
+    -> filter contour based on size  
+    -> find centroids  
+    -> filter centroids based on location and store [self.centroids]  
 
 update_frame:
 -> depends on state, shows different frame
 -> Overlay, draw cross and points on the image (draw_cross)
 -> Convert to QImage so it can be zoomed in and out
-
+```
 ## Messaging protocol
 First connect timeout 60s
 Will try to connect every 5s if not connected
@@ -91,7 +119,7 @@ Teach robot tooling (in Robot Manager)
     - Have a matrix of known points. The points should be at Z-axis of the insertion plate, plane parallel to the ground. (Place it slightly above the 3x3)
     - Turn gripper: move z up and down to see if it is straight. If not loosen the screws to adjust.
     - Rotate gripper make sure it is centered. If not reteach the tool in RC+.
-    - Make sure the grid is stable so it will not move if robot touch it
+    - Make sure the calibration grid is stable so it will not move if robot touch it
 2. Move camera to correct position. Process image and note their points in image coordinate. Save the image in case needed later.
 3. let robot go to those positions and note the positions.
 4. Move the camera back to capture position, make sure it is not shifted
@@ -112,38 +140,62 @@ start if CommandReady == 1 and RobotCommand == "insert"
 - Set CommandReady = 0
 
 # Milestones
-## 1 Screw (Date: )
-Manual robot alignment with eye
+## 1 Screw (2024-03-11)
+Manual robot alignment using visual inspection
+Gantry type system for movement
 
-## 10 screws (Date: )
-Camera and robot to find all positions
-One by one insert
-Human nearby to make sure its accurate
+## 10 screws (2024-11-26)
+Vision system to detect cells to insert
+One by one insert routine with human intervention
+Auto feeder for screw supple
+HMI:
+- Live camera mode for monitoring
+- Display centroid centers
 
-## 100 screws (current)
-Continuously insert
-Error handling for communication
-Start and resume functionality
-Automatic calibration
+## 100 screws (2025-02-11)
+Continuously insert without little human interference
+One vision section
+Communication protocol and error handling
+Capture and process image including moving robot to position
+HMI
+- Pause and resume
+- Able to start from any cell
 
-## 1000 screws
+## 1000 screws (TODO)
+Multiple vision sections for large-area processing
 Conveyor tracking
 Insert the 1 whole plate
 Very little error
+Automatic calibration
 
-## 10000 screws
-Fully automate
+## 10000 screws (TODO)
+End-to-end automation
+Adaptive error handling
+
+# Reflections
+### 1 screw
+- Gantry too complex to maintain
+
+### 10 screws
+- Parallex error is bad, need to capture image in sections
+- Careful homography calibration is critical
+- Not all setup requires camera calibration
+
+### 100 screws
+- HMI system can get buggy easily
+- 
 
 # App manual unit tests:
-## window
+### window
 - Resize the window so nothing weird happen
 
-## cross
+### cross
 - When clicked, the cross is at right position and shows the robot coordinate
 - Arrow keys moves the cross, WASD moves the cross 10px
 - When zoomed in, the mouse click to the right position
 - Press R Key to record current cross position
 
+### others
 - Image is actually saved
 - TCPIP sends in the right format: (str(message).encode()) + b"\r\n"
 - When sending message and while waiting for 'taskdone', UI is still responsive
@@ -158,3 +210,5 @@ Fully automate
 4. Robot tool calibration error (including end effector hardware)
 5. Camera resolution error
 6. Screw bending
+7. Plate shifted after capture image
+
