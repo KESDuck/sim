@@ -1,11 +1,12 @@
 - [Usage:](#usage)
   - [Ideal operation (happy path)](#ideal-operation-happy-path)
   - [Dependency Tree](#dependency-tree)
-  - [UI](#ui)
-  - [Main insertion operation](#main-insertion-operation)
+  - [UI Features](#ui-features)
+  - [Using the HMI](#using-the-hmi)
   - [Camera Setup](#camera-setup)
   - [Vision cycle](#vision-cycle)
-  - [Messaging protocol](#messaging-protocol)
+  - [Robot Messaging Protocol (old, 100 screws)](#robot-messaging-protocol-old-100-screws)
+  - [Dual Process Robot Protocol (1000 screws)](#dual-process-robot-protocol-1000-screws)
   - [Homography Calibration](#homography-calibration)
   - [Insert ActionLoop routine](#insert-actionloop-routine)
 - [Milestones](#milestones)
@@ -23,24 +24,45 @@
     - [cross](#cross)
     - [others](#others)
 - [Error Analysis](#error-analysis)
+- [Tasks](#tasks)
 
 
 # Usage:
-This application is a robot vision system that integrates a camera, robot arm, and user interface for precise operations like screw insertion. It consists of multiple components that communicate through message protocols, and it features a homography-based calibration system to convert camera coordinates to robot coordinates.
+This app is a robot vision system that integrates camera (pylon), robot (TCPIP), and UI for screw insertion. It consists of multiple components that communicate through message protocols, and it features a homography-based calibration system to convert camera coordinates to robot coordinates.
+
+## Namings
+
+- Cell coordinate: contours center, centroids, screw locations
+- Insertion region: capture id, batch insert section, vision section
+- Template: 模型版
+- Web plate
+- 3x3: rack, 九宮格
+- Grabber: retriver
+- Feeder:  
 
 ## Ideal operation (happy path)
-1. Setup
-    - Feeder is set to the correct screw diameter using precision stairs. Add screws to the feeder (or vibratory feeder)
-    - Insert frame and web plate, secure on conveyor
-    - Turn on robot and computers. Make sure all is connected with ethernet: robot controller, python script computer, RC+ computer, camera. Start python script and RC+ program.
-3. Press start, robot starts main insertion operation
-    a. Robot move camera to position
-    b. Camera grab frame
-    c. Process image to return list of cell location in robot coordinate
-    d. Send each coordinate to robot
-    e. Robot returns "taskdone" for each insertion, and loop until all cells are inserted
-4. When completed the loaded frame is ejected from the robot ready for pick up
+1. Setup  
+    - Feeder: set to the correct screw diameter using precision stairs. Add screws to the feeder (or vibratory feeder)  
+    - Insert frame and web plate, secured on conveyor  
+    - Components connected with ethernet and turned on: robot controller, python script computer, RC+ computer, camera. Start python script and RC+ program.  
+3. Press start, robot starts main insertion operation. Do a batch insert for each insertion region:  
+    a. Robot move camera to position  
+    b. Camera grab frame  
+    c. Process image to return list of cell locations in robot coordinate. And for each cell:  
+        d. Send each coordinate to robot  
+        e. Robot returns "taskdone" for each insertion, and loop until all cells are inserted  
+4. When completed the loaded frame is ejected from the robot ready for pick up  
 
+## UI
+Operator mode: Start, Stop, Insertion region spin box  
+Engineer mode: 
+    - Live Camera Mode (Real-time updates)  
+    - Paused Original Image (For fine-tuning)  
+    - Thresholded Image (Processed for centroids)  
+    - Contours Mode (Overlays detected contours)  
+    - Crosshair Adjustment (Arrow keys & WASD & Mouse Click)  
+    - Robot Commands (Jump, Insert, Echo)  
+    - Saving Processed Frames  
 
 ## Dependency Tree
 ```
@@ -56,26 +78,26 @@ main
 ```
 
 
-## UI
-Live Camera Mode (Real-time updates)
-Paused Original Image (For fine-tuning)
-Thresholded Image (Processed for centroids)
-Contours Mode (Overlays detected contours)
-Crosshair Adjustment (Arrow keys & WASD & Mouse Click)
-Robot Commands (Jump, Insert, Echo)
-Saving Processed Frames
-
-## Main insertion operation
-
-Buttons: Start, Stop, Num box,
-
 ## Camera Setup
-Webcam
-iPhone
-Basler (pylon)
-- Use pylon IP configurator or pylon Viewer
-acA2500-14gm 16mm
-- 15x20 cells, 90 pixel per cell
+Webcam  
+iPhone  
+Basler (pylon)  
+- Use pylon IP configurator or pylon Viewer  
+
+acA2500-14gm (2592x1944)
+- z=580mm (robot -18mm), 16mm:
+    - FOV: 190x140, 15x20 cells
+    - cell 90x90 pixel 
+- z=580mm (robot -18mm), 8mm:
+    - FOV: 290X380
+    - max distortion 0.5mm
+    - 6.7 pixel/mm
+    - each cell 45x45 pixel
+- z=480mm (robot -118mm), 8mm:
+    - max distortion 4px
+    - 10.9pixel/mm
+    - each cell 55x55 pixel
+
 
 ## Vision cycle
 ```
@@ -97,35 +119,41 @@ update_frame:
 -> Overlay, draw cross and points on the image (draw_cross)
 -> Convert to QImage so it can be zoomed in and out
 ```
-## Messaging protocol
-First connect timeout 60s
-Will try to connect every 5s if not connected
+
+## Messaging Protocol
+### Robot Messaging Protocol (100 screws)
+First connect timeout 60s  
+Will try to connect every 5s if not connected  
 
 Python - Nonblocking messaging setup using qtimer. (Because using QTimer is generally the best practice over QApplication.processEvents() in most scenarios. )
-- Send msg "insert X Y Z U" with ack msg "ack"
+- Send msg "insert X Y Z U" with ack msg "ack"  
 
-Robot:
-- Received msg and send "ack"
-- Perform task based on the command, first word decide which function to perform
-- If task completed successfully, send msg "taskdone"
+Robot:  
+- Received msg and send "ack"  
+- Perform task based on the command, first word decide which function to perform  
+- If task completed successfully, send msg "taskdone"  
 
-Python:
-- wait for confirm msg "taskdone"
-- Start next cycle
+Python:  
+- wait for confirm msg "taskdone"  
+- Start next cycle 
+
+### Dual Process Robot Protocol (1000 screws)
+Robot code will create 2 tasks, one for receiving and storing the cell positions, the other will be controlling the robot for inserting.
+
+### All region cell Protocol (1000 screws)
+Will get all the cell coordinates of a insertion region and start insert.
 
 ## Homography Calibration
 Teach robot tooling (in Robot Manager) 
 1. setup hardware:
     - Have a matrix of known points. The points should be at Z-axis of the insertion plate, plane parallel to the ground. (Place it slightly above the 3x3)
-    - Turn gripper: move z up and down to see if it is straight. If not loosen the screws to adjust.
-    - Rotate gripper make sure it is centered. If not reteach the tool in RC+.
+    - Tune gripper: move z up and down to see if it is straight. If not loosen the screws to adjust.
+    - Rotate gripper around tool center make sure it is centered. If not reteach the tool in RC+.
     - Make sure the calibration grid is stable so it will not move if robot touch it
 2. Move camera to correct position. Process image and note their points in image coordinate. Save the image in case needed later.
-3. let robot go to those positions and note the positions.
+3. Let robot go to those positions and note the positions (all units in mm).
 4. Move the camera back to capture position, make sure it is not shifted
 5. Feed the data to find_homography.py and make sure error is low (<0.2mm). Put the homography matrix in config.yml
-
-
 
 ## Insert ActionLoop routine
 start if CommandReady == 1 and RobotCommand == "insert"
@@ -144,6 +172,9 @@ start if CommandReady == 1 and RobotCommand == "insert"
 Manual robot alignment using visual inspection
 Gantry type system for movement
 
+**Reflections**
+- Gantry setup too complex to maintain
+
 ## 10 screws (2024-11-26)
 Vision system to detect cells to insert
 One by one insert routine with human intervention
@@ -151,6 +182,11 @@ Auto feeder for screw supple
 HMI:
 - Live camera mode for monitoring
 - Display centroid centers
+
+**Reflections**
+- Parallex error is bad, need to capture image in sections
+- Careful homography calibration is critical
+- Not all setup requires camera calibration
 
 ## 100 screws (2025-02-11)
 Continuously insert without little human interference
@@ -161,31 +197,27 @@ HMI
 - Pause and resume
 - Able to start from any cell
 
-## 1000 screws (TODO)
-Multiple vision sections for large-area processing
-Conveyor tracking
-Insert the 1 whole plate
-Very little error
-Automatic calibration
+**Reflections**
+- HMI system can get buggy easily - need testing
+- TCP/IP transmission takes time - feed all data to robot or dual process 
+- Robot moving fast can be shacky  
+  
+## 1000 screws (TODO)  
+Insert the 1 whole plate with high accuracy  
+Multiple insertion region for large-area processing  
+Send all cell location to robot and robot send insertion status back to app
+Force sensor on grabber to skip insertion for bad cells  
+Automatic (one click) homography calibration  
+Hardware to force web plate onto the 3x3 rack  
+40% robot speed  
+Conveyor system  
 
-## 10000 screws (TODO)
-End-to-end automation
-Adaptive error handling
+## 10000 screws (TODO)  
+End-to-end automation  
+Adaptive error handling  
+Non-stop movement when grabbing screw from feeder      
 
-# Reflections
-### 1 screw
-- Gantry too complex to maintain
-
-### 10 screws
-- Parallex error is bad, need to capture image in sections
-- Careful homography calibration is critical
-- Not all setup requires camera calibration
-
-### 100 screws
-- HMI system can get buggy easily
-- 
-
-# App manual unit tests:
+# App manual tests:
 ### window
 - Resize the window so nothing weird happen
 
@@ -200,15 +232,25 @@ Adaptive error handling
 - TCPIP sends in the right format: (str(message).encode()) + b"\r\n"
 - When sending message and while waiting for 'taskdone', UI is still responsive
 
-# Error Analysis
+# Insertion source of error
 1. Parallex Error due to variation in height
     - WD 600mm
     - V_Err = 5mm
-    - H_Err = 0.1mm (@10mm), 0.4 (50), 0.8 (100), 1.3 (500)
-2. Homography calibration error (~0.1mm)
-3. Camera calibration error (camera matrix, distortion vector)
+    - H_Err = 0.1mm (@10mm), 0.4 (@50), 0.8 (@100), 1.3 (@500)
+    - Higher WD will reduce parallex error
+2. Camera calibration (camera matrix, distortion vector) error (0.4mm w/out calibration)
+    - Calibrate if have time
+3. Homography calibration error (~0.1mm)
+    - Usually will have to manually adjust after testing
 4. Robot tool calibration error (including end effector hardware)
 5. Camera resolution error
+    - Choose higher resolution (~10px/mm)
 6. Screw bending
+    - Grab at lower end
 7. Plate shifted after capture image
 
+# Tasks
+- SPEL extension for VScode
+- Send cell coordinates while robot is inserting  
+- CI for the app
+- Robot simulator (to use the app without robot)

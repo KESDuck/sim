@@ -1,3 +1,10 @@
+"""
+A simple PyQt5 application demonstrating QTimer usage:
+- Creates a window with a button and progress label
+- When button is clicked, simulates a task with progress updates every 50ms
+- Shows how to use QTimer for periodic updates in PyQt applications
+"""
+
 from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QPushButton, QWidget
 from PyQt5.QtCore import QTimer
 

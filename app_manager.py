@@ -14,7 +14,7 @@ with open('config.yml', 'r') as file:
 
 class AppManager(QObject):
     """
-    Handles all the coordination between vision, robot, TODO conveyor, and UI.
+    Handles all the coordination between vision, robot, conveyor, and UI.
     Manages detected cells (centroids).
     Manages cross positions.
     Manages processing section - capture position and conveyor position.
@@ -49,8 +49,9 @@ class AppManager(QObject):
 
     def insert_batch(self, capture_idx) -> bool:
         """
-        Insert bath for position given capture_idx
-        Automated from capturing to inserting all
+        Insert batch for the given insertion region. 2 steps:
+        1. position_and_capture
+        2. insert_all_in_view
         """
         if not self.position_and_capture(capture_idx):
             logger.error(f"Capture failed at index {capture_idx}")
@@ -60,13 +61,13 @@ class AppManager(QObject):
             logger.error("Insertion failed.")
             return False
         
-        logger.info("Batch insertion completed successfully.")
+        logger.info(f"Insertion region {capture_idx} completed successfully.")
         return True
 
     def position_and_capture(self, idx) -> bool:
         """
-        Move robot for vision position. 
-        Capture and process
+        Move robot to capture position. 
+        Capture and process with 3 attempts
         Then lower the z to allow for jump limZ
         TODO: Move conveyor for conveyor position
         """
@@ -141,6 +142,7 @@ class AppManager(QObject):
         return success
 
     def on_save_frame(self):
+
         if self.vision.frame_camera_stored:
             save_image(self.vision.frame_camera_stored, config["save_folder"])
 
@@ -149,13 +151,15 @@ class AppManager(QObject):
 
     def shift_cross(self, dx=0, dy=0):
         """In camera position
-        # TODO: check for boundaries of the cross
-        # TODO: allow for half step movement
+        # TODO[b]: allow for half step movement
         """
         x, y = self.cross_cam_xy
         self.set_cross_position(x+dx, y+dy)
 
     def set_cross_position(self, x, y):
+        """
+        TODO: check for boundaries
+        """
         self.cross_cam_xy = np.array([x, y])
         self.cross_robo_xy = map_image_to_robot(self.cross_cam_xy, self.homo_matrix)
 

@@ -32,7 +32,7 @@ robot_points = np.array(
 
 H_base, _ = cv.findHomography(image_points, robot_points)
 
-print("Base Homography Matrix:\n", H_base)
+print("Base Homography Matrix:\n", np.array2string(H_base, formatter={'float': lambda x: f'{x:.7f}'}))
 
 def map_image_to_world(homography_matrix, image_point):
     """
