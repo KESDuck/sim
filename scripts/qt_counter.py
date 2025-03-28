@@ -1,3 +1,10 @@
+"""
+A simple PyQt5 counter application demonstrating QTimer and QSpinBox:
+- Creates a window with a number input box and start/pause button
+- When started, automatically increments the number every 500ms
+- Shows how to use QTimer for continuous updates and QSpinBox for number input
+"""
+
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QSpinBox
 from PyQt5.QtCore import QTimer

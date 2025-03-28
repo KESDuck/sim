@@ -1,7 +1,7 @@
-cam_type: "pylon"  # pylon or usb or file
+cam_type: "file"  # pylon or usb or file
 cam_num: 0  # used if usb camera
 save_folder: "save/"
-img_path: "save/2025-02-10 122138.jpg"
+img_path: "save/2025-02-10 122138.jpg" # used if file camera
 
 homo_matrix:
   # Max error: 0.16
@@ -14,7 +14,7 @@ capture_positions:
   - [50, 470, 0, 0]
   - [50, 470, 0, 0]
 
-# TODO: robot IP and port
+# TODO: robot IP and port 
 
 robot:
   z_max: -16.5

@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtWidgets import QGraphicsScene, QGraphicsPixmapItem, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QSpinBox, QComboBox
+from PyQt5.QtWidgets import QGraphicsScene, QGraphicsPixmapItem, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QSpinBox, QComboBox, QMenuBar, QAction, QTabWidget, QLabel
 from PyQt5.QtGui import QImage, QPixmap, QBrush, QColor
 import signal
 
@@ -41,17 +41,32 @@ class AppUI(QWidget):
         self.ui_view_states.setCurrentIndex(1)
         self.capture_image()
         
-
     def setup_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("Image Viewer with Robot Control")
         self.setGeometry(50, 50, 1000, 700)
 
+        # Create main layout
+        self.main_layout = QVBoxLayout()
+        
+        # Create tab widget
+        self.tabs = QTabWidget()
+        self.main_layout.addWidget(self.tabs)
+        
+        # Create Engineer tab
+        engineer_tab = QWidget()
+        engineer_layout = QVBoxLayout(engineer_tab)
+        
         # Graphics view for displaying images
         self.graphics_view = GraphicsView(self)
         self.scene = QGraphicsScene(self)
         self.graphics_view.setScene(self.scene)
         self.pixmap_item = None  # Placeholder for the image item
+        engineer_layout.addWidget(self.graphics_view)
+
+        # Button layout for engineer controls
+        self.button_layout = QHBoxLayout()
+        engineer_layout.addLayout(self.button_layout)
 
         ##### Cell index spinbox #####
         self.ui_cell_spinbox = QSpinBox() # stores the selected cell index
@@ -84,22 +99,28 @@ class AppUI(QWidget):
         self.ui_echo_button = QPushButton("Echo", self)
         self.ui_echo_button.clicked.connect(self.app_manager.echo_test)
 
-        ##### Layout #####
-        layout = QVBoxLayout()
-        layout.addWidget(self.graphics_view)
+        # Add engineer mode widgets
+        self.button_layout.addWidget(self.ui_capture_button)
+        self.button_layout.addWidget(self.ui_view_states)
+        self.button_layout.addWidget(self.ui_save_frame_button)
+        self.button_layout.addWidget(self.ui_cell_spinbox)
+        self.button_layout.addWidget(self.ui_move_to_capture)
+        self.button_layout.addWidget(self.ui_insert_single_button)
+        self.button_layout.addWidget(self.ui_insert_batch_button)
+        self.button_layout.addWidget(self.ui_echo_button)
 
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(self.ui_capture_button)
-        button_layout.addWidget(self.ui_view_states)
-        button_layout.addWidget(self.ui_save_frame_button)
-        button_layout.addWidget(self.ui_cell_spinbox)
-        button_layout.addWidget(self.ui_move_to_capture)
-        button_layout.addWidget(self.ui_insert_single_button)
-        button_layout.addWidget(self.ui_insert_batch_button)
-        button_layout.addWidget(self.ui_echo_button)
-
-        layout.addLayout(button_layout)
-        self.setLayout(layout)
+        # Create User tab
+        user_tab = QWidget()
+        user_layout = QVBoxLayout(user_tab)
+        # Add placeholder for user interface
+        user_layout.addWidget(QLabel("User Interface Coming Soon..."))
+        
+        # Add tabs to tab widget
+        self.tabs.addTab(engineer_tab, "Engineer")
+        self.tabs.addTab(user_tab, "User")
+        
+        # Set the main layout
+        self.setLayout(self.main_layout)
 
     def view_state_changed(self, state):
         logger.info(f"View state: {state}")
@@ -145,6 +166,10 @@ class AppUI(QWidget):
         Make a copy and draw cross
         Works for both grayscale or RGB frame
         """
+        if not hasattr(self, 'ui_view_states') or self.ui_view_states is None:
+            logger.error("UI components have been deleted.")
+            return
+
         cur_state = self.ui_view_states.currentText()
 
         # store captured image

@@ -23,13 +23,13 @@ class VisionManager():
         self.frame_contour = None # with contour
         self.centroids = None # list of cenrtroids
 
-    def get_first_frame(self) :
-        """
-        TODO: add retry logic
-        """
+    def get_first_frame(self):
+        """Get first frame to verify camera operation"""
         frame = self.camera.get_frame()
         if frame is not None:
             logger.info(f"Frame shape: {frame.shape}")
+        else:
+            logger.error("Failed to get first frame from camera")
 
     def live_capture(self) -> bool:
         """

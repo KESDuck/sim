@@ -34,6 +34,7 @@ class USBCamera(CameraBase):
     def __init__(self, cam_num=0, camera_matrix=None, dist_coeffs=None):
         self.cap = cv.VideoCapture(cam_num)
         if not self.cap.isOpened():
+            logger.error(f"Failed to initialize USB camera {cam_num}.")
             raise RuntimeError(f"Failed to initialize USB camera {cam_num}.")
         self.camera_matrix = camera_matrix
         self.dist_coeffs = dist_coeffs
@@ -68,17 +69,13 @@ class PylonCamera(CameraBase):
     TODO: add retry logic
     """
     def __init__(self, camera_matrix=None, dist_coeffs=None):
-        self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
-        self.camera.Open()
+        self.camera = None
+        self.connect_pylon_camera()
         self.camera_matrix = camera_matrix
         self.dist_coeffs = dist_coeffs
-        model_name = self.camera.GetDeviceInfo().GetModelName()
-        camera_ip = self.camera.GetDeviceInfo().GetIpAddress()
-        logger.info(f"##### Pylon camera connected: {model_name} ({camera_ip}) #####")
 
     def get_frame(self):
         """Capture and preprocess a frame from the Pylon camera."""
-
         try:
             grab_result = self.camera.GrabOne(4000)  # Timeout in milliseconds
             if not grab_result.GrabSucceeded():
@@ -90,9 +87,8 @@ class PylonCamera(CameraBase):
         except pylon.RuntimeException as e:
             # logger.error(f"{e}")
             # TODO this happens often, see how to not to use try except
-            self.reconnect_camera()
+            self.connect_pylon_camera()
             return None
-
 
     def _undistort(self, frame):
         """Undistort the frame if calibration data is provided."""
@@ -101,15 +97,22 @@ class PylonCamera(CameraBase):
             return cv.undistort(frame, self.camera_matrix, self.dist_coeffs)
         return frame
 
-    def reconnect_camera(self):
+    def connect_pylon_camera(self):
         """Safely release and reconnect the camera."""
         try:
-            self.release()
+            if hasattr(self, 'camera') and self.camera:
+                self.release()
             self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
+            if not self.camera:
+                logger.error("No Pylon camera found.")
+                raise RuntimeError("No Pylon camera found.")
             self.camera.Open()
-            logger.info("Camera reconnected successfully.")
+            model_name = self.camera.GetDeviceInfo().GetModelName()
+            camera_ip = self.camera.GetDeviceInfo().GetIpAddress()
+            logger.info(f"##### Pylon camera connected: {model_name} ({camera_ip}) #####")
         except Exception as e:
-            logger.error(f"Failed to reconnect camera: {e}")
+            logger.error(f"Failed to connect to Pylon camera: {e}")
+            raise RuntimeError(f"Failed to connect to Pylon camera: {e}")
 
     def release(self):
         """Release the Pylon camera."""
@@ -135,22 +138,35 @@ class CameraHandler:
     Delegates camera operations to the appropriate camera type (USB or Pylon).
     """
     def __init__(self, cam_type="usb", cam_num=0, camera_matrix=None, dist_coeffs=None):
-        if cam_type == "usb":
-            self.camera = USBCamera(cam_num, camera_matrix, dist_coeffs)
-        elif cam_type == "pylon":
-            self.camera = PylonCamera(camera_matrix, dist_coeffs)
-        elif cam_type == "file":
-            self.camera = FileMockInterface(path=config["img_path"])
-        else:
-            raise ValueError(f"Unsupported camera type: {cam_type}")
+        self.camera = None
+        self.camera_connected = False
+        try:
+            if cam_type == "usb":
+                self.camera = USBCamera(cam_num, camera_matrix, dist_coeffs)
+                self.camera_connected = True
+            elif cam_type == "pylon":
+                self.camera = PylonCamera(camera_matrix, dist_coeffs)
+                self.camera_connected = True
+            elif cam_type == "file":
+                self.camera = FileMockInterface(path=config["img_path"])
+                self.camera_connected = True
+            else:
+                logger.error(f"Unsupported camera type: {cam_type}")
+                return
+        except Exception as e:
+            logger.error(f"Failed to initialize {cam_type} camera: {e}")
+            self.camera_connected = False
 
     def get_frame(self):
         """Delegate frame capture to the selected camera."""
+        if not self.camera_connected:
+            return None
         return self.camera.get_frame()
 
     def release(self):
         """Delegate resource cleanup to the selected camera."""
-        self.camera.release()
+        if self.camera_connected and self.camera:
+            self.camera.release()
 
 if __name__ == "__main__":
     camera = CameraHandler(cam_type="pylon")

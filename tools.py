@@ -106,7 +106,7 @@ def sort_centroids(centroids, x_tolerance=30):
 def add_spinning_indicator(spin_angle, frame):
     """
     Adds a spinning indicator to the top-right corner of the frame.
-    TODO: test this
+    TODO[c]: test this
     """
     height, width, _ = frame.shape
     center = (width - 30, 30)  # Top-right corner
