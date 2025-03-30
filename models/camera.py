@@ -1,5 +1,7 @@
-from abc import ABC, abstractmethod
+import os
+import sys
 import cv2 as cv
+from abc import ABC, abstractmethod
 import yaml
 
 try:
@@ -7,6 +9,10 @@ try:
     PYLON_AVAILABLE = True
 except ImportError:
     PYLON_AVAILABLE = False
+
+# Add the project root directory to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
 
 from utils.logger_config import get_logger
 
