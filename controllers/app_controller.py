@@ -4,13 +4,77 @@ import time
 import yaml
 
 from utils.logger_config import get_logger
-from utils.tools import map_image_to_robot, save_image, draw_cross
+from utils.tools import map_image_to_robot, save_image, draw_cross, draw_points
 from models.robot_model import RobotModel
 from models.vision_model import VisionModel
 
 logger = get_logger("Controller")
 with open('config.yml', 'r') as file:
     config = yaml.safe_load(file)
+
+
+class CrossPositionManager:
+    """
+    Manages the position of the cross overlay on camera frames.
+    """
+    def __init__(self, homo_matrix):
+        self.cam_xy = np.array([1, 1])
+        self.robot_xy = None
+        self.homo_matrix = homo_matrix
+
+    def shift(self, dx=0, dy=0):
+        """Move cross in camera position by delta x,y."""
+        x, y = self.cam_xy
+        self.set_position(x+dx, y+dy)
+        
+    def set_position(self, x, y):
+        """Set the cross position in camera coordinates."""
+        self.cam_xy = np.array([x, y])
+        self.robot_xy = map_image_to_robot(self.cam_xy, self.homo_matrix)
+        
+    def get_position_info(self):
+        """Get formatted position information for display."""
+        cam_x, cam_y = self.cam_xy
+        if self.robot_xy is None:
+            return f"Camera: ({cam_x:6.1f}, {cam_y:6.1f}), Robot: (-, -)"
+        else:
+            robot_x, robot_y = self.robot_xy
+            return f"Camera: ({cam_x:6.1f}, {cam_y:6.1f}), Robot: ({robot_x:7.2f}, {robot_y:7.2f})"
+
+
+class CellManager:
+    """
+    Manages cell selection and indexing.
+    """
+    def __init__(self):
+        self.cells_xy = None
+        self.current_index = -1
+        
+    def update_cells(self, cells_xy):
+        """Update the list of cell coordinates."""
+        self.cells_xy = cells_xy
+        self.current_index = -1
+        return len(self.cells_xy) - 1 if self.cells_xy else 0
+        
+    def set_index(self, index):
+        """Set the current cell index."""
+        if self.cells_xy is None:
+            self.current_index = -1
+            return
+        
+        # Ensure index is within valid range
+        if index < -1:
+            index = -1
+        elif index >= len(self.cells_xy):
+            index = len(self.cells_xy) - 1
+            
+        self.current_index = index
+        
+    def get_current_cell(self):
+        """Get coordinates of the current cell."""
+        if self.current_index < 0 or self.cells_xy is None or self.current_index >= len(self.cells_xy):
+            return None
+        return self.cells_xy[self.current_index]
 
 
 class AppController(QObject):
@@ -29,12 +93,9 @@ class AppController(QObject):
         self.robot = RobotModel()
         self.vision = VisionModel(cam_type=config["cam_type"])
 
-        self.cross_cam_xy = np.array([1, 1])
-        self.cross_robo_xy = None
-
-        # Cells xy are retrieved from vision model
-        self.cells_img_xy = None
-        self.cell_index = -1  # Single source of truth for cell index
+        # Initialize managers
+        self.cross_manager = CrossPositionManager(config["homo_matrix"])
+        self.cell_manager = CellManager()
 
         # keep track if it is batch inserting 
         self.pause_insert = False
@@ -58,6 +119,30 @@ class AppController(QObject):
         # Emit initial status message
         self.status_message.emit("Press R Key to note current cross position")
 
+    def _prepare_and_emit_frame(self, frame, draw_cells=True):
+        """Helper method to prepare a frame with overlays and emit it."""
+        if frame is None:
+            return
+            
+        # Make a copy to avoid modifying the original
+        frame = frame.copy()
+        
+        # Add overlay with cell points if available and requested
+        if draw_cells and self.current_view_state != "live" and self.cell_manager.cells_xy is not None:
+            frame = draw_points(
+                frame, 
+                self.cell_manager.cells_xy, 
+                self.cell_manager.current_index, 
+                size=10
+            )
+        
+        # Draw cross on frame before emitting
+        cross_x, cross_y = self.cross_manager.cam_xy
+        frame = draw_cross(frame, cross_x, cross_y)
+        
+        # Emit the prepared frame
+        self.frame_updated.emit(frame)
+
     def set_view_state(self, state):
         """Update the current view state."""
         self.current_view_state = state
@@ -74,85 +159,32 @@ class AppController(QObject):
             
             # Emit the appropriate frame for this state
             frame = self.get_frame_for_display(state)
-            if frame is not None:
-                # Make a copy to avoid modifying the original
-                frame = frame.copy()
-                
-                # For non-live frames, add overlay with cell points if available
-                if state != "live" and self.cells_img_xy is not None:
-                    from utils.tools import draw_points
-                    frame = draw_points(
-                        frame, 
-                        self.cells_img_xy, 
-                        self.cell_index, 
-                        size=10
-                    )
-                
-                # Draw cross on frame before emitting
-                cross_x, cross_y = self.cross_cam_xy
-                frame = draw_cross(frame, cross_x, cross_y)
-                
-                self.frame_updated.emit(frame)
+            self._prepare_and_emit_frame(frame)
+
+    def _update_centroids(self):
+        """Helper method to update centroids data from the vision model."""
+        max_value = self.cell_manager.update_cells(self.vision.centroids)
+        self.cell_index_changed.emit(-1)
+        self.cell_max_changed.emit(max_value)
+        logger.info(f"Updated centroids, found {max_value + 1}")
 
     def update_frame(self):
-        """Grab a live frame from the vision model and emit the frame_updated signal."""
-        if self.current_view_state == "live":
-            # For live mode, capture a new frame
-            if self.vision.live_capture():
-                frame = self.vision.frame_camera_live
-                if frame is not None:
-                    # Draw cross on frame before emitting
-                    frame = frame.copy()  # Make a copy to avoid modifying the original
-                    cross_x, cross_y = self.cross_cam_xy
-                    frame = draw_cross(frame, cross_x, cross_y)
-                    self.frame_updated.emit(frame)
-            else:
-                logger.warning("Live capture failed. Skipped frame update.")
-
-    def process_frame(self):
         """Process frame when requested (e.g., via Process button)."""
         # Get the current state
         if self.current_view_state == "live":
             # For live mode, just capture a new frame
             if self.vision.live_capture():
                 frame = self.vision.frame_camera_live
-                if frame is not None:
-                    # Draw cross on frame before emitting
-                    frame = frame.copy()  # Make a copy to avoid modifying the original
-                    cross_x, cross_y = self.cross_cam_xy
-                    frame = draw_cross(frame, cross_x, cross_y)
-                    self.frame_updated.emit(frame)
+                self._prepare_and_emit_frame(frame, draw_cells=False)
         else:
             # For non-live modes, process the frame
             if self.vision.capture_and_process():
                 # Update centroids data
-                self.cells_img_xy = self.vision.centroids
-                self.set_cell_index(-1)
-                max_value = len(self.cells_img_xy) - 1 if self.cells_img_xy else 0
-                self.cell_max_changed.emit(max_value)
+                self._update_centroids()
                 
                 # Get the processed frame based on current view state
                 frame = self.get_frame_for_display(self.current_view_state)
-                if frame is not None:
-                    # Make a copy to avoid modifying the original
-                    frame = frame.copy()
-                    
-                    # Add overlay with cell points if available
-                    if self.cells_img_xy is not None:
-                        from utils.tools import draw_points
-                        frame = draw_points(
-                            frame, 
-                            self.cells_img_xy, 
-                            self.cell_index, 
-                            size=10
-                        )
-                    
-                    # Draw cross on frame before emitting
-                    from utils.tools import draw_cross
-                    cross_x, cross_y = self.cross_cam_xy
-                    frame = draw_cross(frame, cross_x, cross_y)
-                    
-                    self.frame_updated.emit(frame)
+                self._prepare_and_emit_frame(frame)
             else:
                 logger.error("Process image failure")
                 self.status_message.emit("Process image failure")
@@ -185,10 +217,7 @@ class AppController(QObject):
         for attempts in range(3):
             if self.vision.capture_and_process():
                 # Update centroids data
-                self.cells_img_xy = self.vision.centroids
-                self.set_cell_index(-1)
-                max_value = len(self.cells_img_xy) - 1 if self.cells_img_xy else 0
-                self.cell_max_changed.emit(max_value)
+                self._update_centroids()
                 break
             logger.info("Capture failure, retrying...")
             time.sleep(1)
@@ -200,26 +229,7 @@ class AppController(QObject):
         
         # Update the view with the new frame
         frame = self.get_frame_for_display(self.current_view_state)
-        if frame is not None:
-            # Make a copy and draw features
-            frame = frame.copy()
-            
-            # Add cell points
-            if self.cells_img_xy is not None:
-                from utils.tools import draw_points
-                frame = draw_points(
-                    frame, 
-                    self.cells_img_xy, 
-                    self.cell_index, 
-                    size=10
-                )
-            
-            # Draw cross
-            cross_x, cross_y = self.cross_cam_xy
-            frame = draw_cross(frame, cross_x, cross_y)
-            
-            self.frame_updated.emit(frame)
-            
+        self._prepare_and_emit_frame(frame)
         return True
 
     def insert_all_in_view(self) -> bool:
@@ -227,10 +237,10 @@ class AppController(QObject):
         Insert begin from cell_index, can be paused and resumed
         TODO: Stop if error such as socket not connected, if "ack" or "taskdone" not received after timeout
         """
-        while self.cell_index < len(self.cells_img_xy) - 1:
+        while self.cell_manager.current_index < len(self.cell_manager.cells_xy) - 1:
             if self.pause_insert:
                 break
-            self.set_cell_index(self.cell_index + 1)
+            self.set_cell_index(self.cell_manager.current_index + 1)
             if not self.cell_action("insert"):
                 # TODO: pause the UI here not just insertion toggle_pause_insert
                 logger.error("Something is wrong, please check.")
@@ -238,13 +248,14 @@ class AppController(QObject):
         return True
 
     def cell_action(self, action="insert") -> bool:
-        if self.cell_index < 0 or self.cell_index >= len(self.cells_img_xy or []):
+        current_cell = self.cell_manager.get_current_cell()
+        if current_cell is None:
             msg = "Bad cell index"
             logger.warning(msg)
             self.status_message.emit(msg)
             return False
         
-        cX, cY = self.cells_img_xy[self.cell_index]
+        cX, cY = current_cell
         rX, rY = map_image_to_robot((cX, cY), self.homo_matrix)
 
         if action == "insert":
@@ -257,10 +268,10 @@ class AppController(QObject):
             raise ValueError("Bad action")
 
         if not success:
-            self.status_message.emit(f"{action_msg} failed at cell {self.cell_index}")
+            self.status_message.emit(f"{action_msg} failed at cell {self.cell_manager.current_index}")
             return False
         
-        self.status_message.emit(f"{action_msg} successful at cell {self.cell_index}")
+        self.status_message.emit(f"{action_msg} successful at cell {self.cell_manager.current_index}")
         return success
 
     def save_current_frame(self):
@@ -275,96 +286,48 @@ class AppController(QObject):
         self.status_message.emit("Echo command sent")
 
     def shift_cross(self, dx=0, dy=0):
-        """
-        Move cross in camera position
-        TODO[b]: allow for half step movement
-        """
-        x, y = self.cross_cam_xy
-        self.set_cross_position(x+dx, y+dy)
-
-    def set_cross_position(self, x, y):
-        """
-        Set the cross position in camera coordinates
-        TODO: check for boundaries
-        """
-        self.cross_cam_xy = np.array([x, y])
-        self.cross_robo_xy = map_image_to_robot(self.cross_cam_xy, self.homo_matrix)
+        """Move cross in camera position."""
+        self.cross_manager.shift(dx, dy)
         
         # Emit an updated frame with the new cross position
         frame = self.get_frame_for_display(self.current_view_state)
-        if frame is not None:
-            # Make a copy and draw cross
-            from utils.tools import draw_cross
-            frame = frame.copy()
-            
-            # Add cell points if in non-live mode
-            if self.current_view_state != "live" and self.cells_img_xy is not None:
-                from utils.tools import draw_points
-                frame = draw_points(
-                    frame, 
-                    self.cells_img_xy, 
-                    self.cell_index, 
-                    size=10
-                )
-            
-            # Draw the cross at new position
-            frame = draw_cross(frame, x, y)
-            
-            self.frame_updated.emit(frame)
+        self._prepare_and_emit_frame(frame)
+        
+        # Emit status message
+        x, y = self.cross_manager.cam_xy
+        log_msg = f"Cross position updated to ({x}, {y})"
+        logger.info(log_msg)
+        self.status_message.emit(log_msg)
+
+    def set_cross_position(self, x, y):
+        """Set the cross position in camera coordinates."""
+        self.cross_manager.set_position(x, y)
+        
+        # Emit an updated frame with the new cross position
+        frame = self.get_frame_for_display(self.current_view_state)
+        self._prepare_and_emit_frame(frame)
         
         # Emit status message
         log_msg = f"Cross position updated to ({x}, {y})"
         logger.info(log_msg)
         self.status_message.emit(log_msg)
 
-    def print_cross_position(self):
-        """
-        Print current cross position for calibration purposes
-        """
-        cam_x, cam_y = self.cross_cam_xy
-        if self.cross_robo_xy is None:
-            msg = f"Camera: ({cam_x:6.1f}, {cam_y:6.1f}), Robot: (-, -)"
-        else:
-            robot_x, robot_y = self.cross_robo_xy
-            msg = f"Camera: ({cam_x:6.1f}, {cam_y:6.1f}), Robot: ({robot_x:7.2f}, {robot_y:7.2f})"
-        
-        logger.info(msg)
-        self.status_message.emit(msg)
-
     def set_cell_index(self, index):
         """Update cell index and notify view."""
-        self.cell_index = index
-        self.cell_index_changed.emit(index)
+        self.cell_manager.set_index(index)
+        self.cell_index_changed.emit(self.cell_manager.current_index)
         
         # Update the display with the new cell selection
-        if self.current_view_state != "live" and self.cells_img_xy is not None:
+        if self.current_view_state != "live" and self.cell_manager.cells_xy is not None:
             frame = self.get_frame_for_display(self.current_view_state)
-            if frame is not None:
-                # Make a copy to avoid modifying the original
-                frame = frame.copy()
-                
-                # Draw points for cells
-                from utils.tools import draw_points
-                frame = draw_points(
-                    frame, 
-                    self.cells_img_xy, 
-                    self.cell_index, 
-                    size=10
-                )
-                
-                # Draw cross
-                from utils.tools import draw_cross
-                cross_x, cross_y = self.cross_cam_xy
-                frame = draw_cross(frame, cross_x, cross_y)
-                
-                self.frame_updated.emit(frame)
+            self._prepare_and_emit_frame(frame)
 
     def toggle_pause_insert(self):
         self.pause_insert = not self.pause_insert
         if self.pause_insert:
-            msg = f"Insertion paused at {self.cell_index}"
+            msg = f"Insertion paused at {self.cell_manager.current_index}"
         else:
-            msg = f"Insertion resumed at {self.cell_index}"
+            msg = f"Insertion resumed at {self.cell_manager.current_index}"
         
         logger.info(msg)
         self.status_message.emit(msg)
