@@ -36,7 +36,7 @@ class AppController(QObject):
         # keep track if it is batch inserting 
         self.pause_insert = False
 
-        # Capture and conveyor positions
+        # TODO: this determines screw boundaries
         self.capture_position_idx = 0
         self.conveyor_position_idx = 0
 
@@ -65,6 +65,7 @@ class AppController(QObject):
         Move robot to capture position. 
         Capture and process with 3 attempts
         Then lower the z to allow for jump limZ
+        TODO: Move conveyor for conveyor position
         """
         if idx is None:
             idx = self.capture_position_idx
@@ -86,6 +87,7 @@ class AppController(QObject):
 
     def capture_and_process(self) -> bool:
         """
+        TODO: check z. sometimes it is not in position, do not capture if not in correct z height
         Trigger vision model to capture and process
         Update centroids data
         """
@@ -104,12 +106,14 @@ class AppController(QObject):
     def insert_all_in_view(self) -> bool:
         """
         Insert begin from cell_index, can be paused and resumed
+        TODO: Stop if error such as socket not connected, if "ack" or "taskdone" not received after timeout
         """
         while self.cell_index < len(self.cells_img_xy) - 1:
             if self.pause_insert:
                 break
             self.set_cell_index(self.cell_index + 1)
             if not self.cell_action("insert"):
+                # TODO: pause the UI here not just insertion toggle_pause_insert
                 logger.error("Something is wrong, please check.")
                 return False
         return True
@@ -142,17 +146,29 @@ class AppController(QObject):
         self.robot.echo()
 
     def shift_cross(self, dx=0, dy=0):
-        """Move cross in camera position"""
+        """
+        Move cross in camera position
+        TODO[b]: allow for half step movement
+        """
         x, y = self.cross_cam_xy
         self.set_cross_position(x+dx, y+dy)
 
     def set_cross_position(self, x, y):
-        """Set the cross position in camera coordinates"""
+        """
+        Set the cross position in camera coordinates
+        TODO: check for boundaries
+        """
         self.cross_cam_xy = np.array([x, y])
         self.cross_robo_xy = map_image_to_robot(self.cross_cam_xy, self.homo_matrix)
 
     def print_cross_position(self):
-        """For fine tuning homography use."""
+        """
+        For fine tuning homography use.
+        Save at least 9 robot position and current cross position pair to recalibrate
+        
+        Print format: Camera: ( 123.0, 1456.0), Robot: (123.45, 678.90)
+        TODO: change format to xxxx.x
+        """
         cam_x, cam_y = self.cross_cam_xy
         
         if self.cross_robo_xy is None:

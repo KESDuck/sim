@@ -142,13 +142,19 @@ class AppView(QWidget):
         self.controller.set_cell_index(value)
 
     def toggle_batch_insert(self):
-        """Toggle batch insertion mode"""
+        """
+        Toggle batch insertion mode
+        TODO: change to insert_batch for capturing
+        """
         self.controller.toggle_pause_insert()
         button_text = "Resume Batch" if self.controller.pause_insert else "Pause Batch"
         self.ui_insert_batch_button.setText(button_text)
 
     def capture_image(self):
-        """Trigger image capture and processing"""
+        """
+        Trigger image capture and processing
+        TODO: to fix - process image does not work if view_states is live
+        """
         cur_state = self.ui_view_states.currentText()
 
         # capture image, process if needed
@@ -178,6 +184,7 @@ class AppView(QWidget):
             return
         else:
             # Make a copy to avoid modifying original frame
+            # TODO: improve comment - copy the frame away from controller (so later can be saved?)
             self.disp_frame = self.disp_frame.copy()
 
         if cur_state != "live": # processed state
@@ -203,11 +210,34 @@ class AppView(QWidget):
 
         # Update display
         pixmap = QPixmap.fromImage(qimg)
+
+        # Update scene
         if self.pixmap_item is None:
             self.pixmap_item = self.scene.addPixmap(pixmap)
         else:
             self.pixmap_item.setPixmap(pixmap)
+
+        # Set scene rect to match image size
+        w, h = pixmap.width(), pixmap.height()
         self.scene.setSceneRect(0, 0, w, h)
+        
+        # Set minimum scale to fit the image in the view
+        self.graphics_view.set_min_scale(self.scene.sceneRect())
+
+    def update_cross_position(self, scene_pos):
+        """
+        Update the cross position when user clicks on the image.
+        Called by GraphicsView when user clicks on the image.
+        """
+        # Convert QPointF to integer coordinates
+        x = int(scene_pos.x())
+        y = int(scene_pos.y())
+        
+        # Update cross position in controller
+        self.controller.set_cross_position(x, y)
+        
+        # Log the new position
+        logger.info(f"Cross position updated to ({x}, {y})")
 
     def on_save_frame(self):
         """Save current frame"""
