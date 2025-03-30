@@ -3,6 +3,7 @@ import sys
 import cv2 as cv
 from abc import ABC, abstractmethod
 import yaml
+import time
 
 # Add the project root directory to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -75,40 +76,80 @@ class USBCamera(CameraBase):
 class PylonCamera(CameraBase):
     """
     Handles Pylon camera operations, including frame capture and preprocessing.
-    TODO: add retry logic
     """
     def __init__(self, camera_index=0):
         super().__init__()
-        # Initialize the pylon camera directly
-        self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
-        self.camera.Open()
-        # Start grabbing in continuous mode
-        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-        logger.info("Pylon camera initialized.")
+        self.camera_index = camera_index
+        self.camera = None
+        self.consecutive_failures = 0
+        self.max_frame_failures = 5
+        self.reconnect()
+
+    def reconnect(self):
+        """Attempt to connect to the Pylon camera indefinitely."""
+        while True:
+            try:
+                if self.camera and self.camera.IsOpen():
+                    self.camera.Close()
+                
+                self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
+                self.camera.Open()
+                model_name = self.camera.GetDeviceInfo().GetModelName()
+                camera_ip = self.camera.GetDeviceInfo().GetIpAddress()
+                logger.info(f"##### Pylon camera connected: {model_name} ({camera_ip}) #####")
+                self.consecutive_failures = 0
+                return True
+            except Exception as e:
+                logger.error(f"Error connecting to Pylon camera: {e}")
+                time.sleep(1)  # Wait before retrying
 
     def get_frame(self):
-        # Capture a frame from the pylon camera
-        if not self.camera.IsGrabbing():
-            self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-        
-        # Retrieve the frame with a timeout
-        grab_result = self.camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
-        if grab_result.GrabSucceeded():
-            frame = grab_result.Array
-            grab_result.Release()
-            return frame
-        else:
-            logger.error("Failed to grab frame from Pylon camera.")
-            grab_result.Release()
+        """Capture a single frame from the Pylon camera."""
+        if not self.camera or not self.camera.IsOpen():
+            logger.error("Camera is not initialized or not open")
+            return None
+            
+        try:
+            grab_result = self.camera.GrabOne(5000)
+            
+            if grab_result and grab_result.GrabSucceeded():
+                frame = grab_result.Array
+                grab_result.Release()
+                self.consecutive_failures = 0
+                logger.info(f"Successfully grabbed frame with shape: {frame.shape}")
+                return frame
+            else:
+                if grab_result:
+                    error_desc = grab_result.ErrorDescription
+                    grab_result.Release()
+                    logger.error(f"Frame grab failed: {error_desc}")
+                else:
+                    logger.error("GrabOne returned None")
+                self.consecutive_failures += 1
+                
+                if self.consecutive_failures >= self.max_frame_failures:
+                    logger.warning(f"Failed to grab {self.consecutive_failures} frames, attempting reconnect")
+                    self.reconnect()
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error grabbing frame: {e}")
+            self.consecutive_failures += 1
+            
+            if self.consecutive_failures >= self.max_frame_failures:
+                logger.warning(f"Failed to grab {self.consecutive_failures} frames, attempting reconnect")
+                self.reconnect()
             return None
 
     def release(self):
         """Release the Pylon camera."""
-        if hasattr(self, 'camera') and self.camera:
-            if self.camera.IsGrabbing():
-                self.camera.StopGrabbing()
-            self.camera.Close()
-            logger.info("Pylon camera released.")
+        if self.camera:
+            try:
+                if self.camera.IsOpen():
+                    self.camera.Close()
+                logger.info("Pylon camera released")
+            except Exception as e:
+                logger.error(f"Error releasing Pylon camera: {e}")
 
 class FileMockInterface:
     def __init__(self, path):
@@ -130,56 +171,34 @@ class CameraHandler:
     """
     def __init__(self, cam_type="usb", cam_num=None, camera_matrix=None, dist_coeffs=None):
         self.camera = None
-        self.camera_connected = False
-        
-        if cam_num is None:
-            cam_num = config.get("cam_num", 0)
-            
+        self.cam_type = cam_type
+        self.cam_num = cam_num if cam_num is not None else config.get("cam_num", 0)
+        self.camera_matrix = camera_matrix
+        self.dist_coeffs = dist_coeffs
+        self._initialize_camera()
+
+    def _initialize_camera(self):
+        """Initialize the appropriate camera type."""
         try:
-            if cam_type == "usb":
-                self.camera = USBCamera(cam_num, camera_matrix, dist_coeffs)
-                self.camera_connected = True
-            elif cam_type == "pylon":
+            if self.cam_type == "usb":
+                self.camera = USBCamera(self.cam_num, self.camera_matrix, self.dist_coeffs)
+            elif self.cam_type == "pylon":
                 self.camera = PylonCamera(camera_index=0)
-                self.camera_connected = True
-            
-            if cam_type == "file":
-                img_path = config.get("img_path", "save/default.jpg")
-                logger.info(f"Using file camera with image: {img_path}")
-                self.camera = FileMockInterface(path=img_path)
-                self.camera_connected = True
-            
-            if not self.camera_connected:
-                logger.error(f"Unsupported camera type: {cam_type}")
+            else:
+                logger.error(f"Unsupported camera type: {self.cam_type}")
         except Exception as e:
-            logger.error(f"Failed to initialize {cam_type} camera: {e}")
-            logger.info("Falling back to file camera")
-            try:
-                img_path = config.get("img_path", "save/default.jpg")
-                self.camera = FileMockInterface(path=img_path)
-                self.camera_connected = True
-            except Exception as e2:
-                logger.error(f"Failed to initialize file camera as fallback: {e2}")
-                self.camera_connected = False
+            logger.error(f"Failed to initialize {self.cam_type} camera: {e}")
+            self.camera = None
 
     def get_frame(self):
         """Delegate frame capture to the selected camera."""
-        if not self.camera_connected:
-            logger.error("Camera not connected")
-            return None
-        try:
-            return self.camera.get_frame()
-        except Exception as e:
-            logger.error(f"Error getting frame: {e}")
-            return None
+        return None if self.camera is None else self.camera.get_frame()
 
     def release(self):
         """Delegate resource cleanup to the selected camera."""
-        if self.camera_connected and self.camera:
-            try:
-                self.camera.release()
-            except Exception as e:
-                logger.error(f"Error releasing camera: {e}")
+        if self.camera:
+            self.camera.release()
+            self.camera = None
 
 if __name__ == "__main__":
     camera = CameraHandler(cam_type="pylon")
