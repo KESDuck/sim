@@ -95,6 +95,19 @@ class VisionModel(QObject):
         logger.info(f"Total centroids found: {len(self.centroids)}")
 
         return True
+        
+    def next_centroid(self):
+        """
+        Point to the next centroid in self.centroids
+        TODO: If finish, return none
+        """
+        if not self.centroids:
+            logger.error("No centroids found")
+            return None
+        
+        # This is now handled by controller
+        logger.info("next_centroid() should be called from controller")
+        return None
 
     def close(self):
         # Release the camera

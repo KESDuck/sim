@@ -19,10 +19,12 @@ Use `set_min_scale(scene_rect)` to initialize the minimum zoom scale.
 class GraphicsView(QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setDragMode(QGraphicsView.ScrollHandDrag)  # Enable panning with mouse drag
+        self.setDragMode(QGraphicsView.NoDrag)  # Start with no drag mode
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)  # Zoom relative to mouse position
         self.scale_factor = 1.0  # Current zoom scale
         self.min_scale = 1.0  # Minimum allowed zoom scale
+        self.panning = False  # Flag to track if we're currently panning
+        self.app_view = parent  # Store a reference to the AppView
 
     def set_min_scale(self, scene_rect):
         """Calculate and set the minimum scale based on the scene and view size."""
@@ -31,10 +33,14 @@ class GraphicsView(QGraphicsView):
         scene_width = scene_rect.width()
         scene_height = scene_rect.height()
 
+        # Set minimum scale to fit the image in the view
         self.min_scale = min(view_width / scene_width, view_height / scene_height)
-        self.resetTransform()  # Reset the view to the minimum scale
-        self.scale(self.min_scale, self.min_scale)
-        self.scale_factor = self.min_scale
+        
+        # Only reset transform if we're currently zoomed out beyond the minimum
+        if self.scale_factor < self.min_scale:
+            self.resetTransform()
+            self.scale(self.min_scale, self.min_scale)
+            self.scale_factor = self.min_scale
 
     def wheelEvent(self, event):
         """Handle mouse wheel events to zoom in/out while enforcing minimum zoom."""
@@ -56,7 +62,9 @@ class GraphicsView(QGraphicsView):
     def keyPressEvent(self, event):
         """Ignore arrow key events to prevent image scrolling."""
         if event.key() in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down):
-            self.parent().keyPressEvent(event)
+            # Forward key events to AppView
+            if self.app_view:
+                self.app_view.keyPressEvent(event)
         else:
             super().keyPressEvent(event)  # Pass other key events to the default handler
 
@@ -66,12 +74,23 @@ class GraphicsView(QGraphicsView):
             # Map the mouse position to scene coordinates
             scene_pos = self.mapToScene(event.pos())
 
-            # Check if the scene position is valid and within bounds
-            if self.scene() is not None:
-                items = self.scene().items(scene_pos)  # Get items at this position
-                if items:  # Ensure there is an image item under the click
-                    # Get the parent widget (CameraApp) and update cam_cross_pos
-                    parent_widget = self.parent()
-                    if hasattr(parent_widget, 'update_cross_position'):
-                        parent_widget.update_cross_position(scene_pos)
-        super().mousePressEvent(event)  # Call the default behavior for dragging, etc.
+            # Middle button or Alt+Left button activates panning
+            if event.modifiers() == Qt.AltModifier:
+                self.setDragMode(QGraphicsView.ScrollHandDrag)
+                self.panning = True
+                # Call super after setting drag mode
+                super().mousePressEvent(event)
+            else:
+                # Normal left click - update cross position
+                if self.app_view and hasattr(self.app_view, 'update_cross_position'):
+                    self.app_view.update_cross_position(scene_pos)
+        else:
+            # Handle other buttons normally
+            super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """Reset drag mode after panning."""
+        if self.panning and event.button() == Qt.LeftButton:
+            self.panning = False
+            self.setDragMode(QGraphicsView.NoDrag)
+        super().mouseReleaseEvent(event)
