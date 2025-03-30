@@ -4,17 +4,14 @@ import cv2 as cv
 from abc import ABC, abstractmethod
 import yaml
 
-try:
-    from pypylon import pylon
-    PYLON_AVAILABLE = True
-except ImportError:
-    PYLON_AVAILABLE = False
-
 # Add the project root directory to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
 from utils.logger_config import get_logger
+
+# Import pylon directly
+from pypylon import pylon
 
 logger = get_logger("Camera")
 with open('config.yml', 'r') as file:
@@ -80,59 +77,36 @@ class PylonCamera(CameraBase):
     Handles Pylon camera operations, including frame capture and preprocessing.
     TODO: add retry logic
     """
-    def __init__(self, camera_matrix=None, dist_coeffs=None):
-        if not PYLON_AVAILABLE:
-            logger.error("Pypylon library not available. Cannot use Pylon camera.")
-            raise ImportError("Pypylon library not available")
-            
-        self.camera = None
-        self.connect_pylon_camera()
-        self.camera_matrix = camera_matrix
-        self.dist_coeffs = dist_coeffs
+    def __init__(self, camera_index=0):
+        super().__init__()
+        # Initialize the pylon camera directly
+        self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
+        self.camera.Open()
+        # Start grabbing in continuous mode
+        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+        logger.info("Pylon camera initialized.")
 
     def get_frame(self):
-        """Capture and preprocess a frame from the Pylon camera."""
-        try:
-            grab_result = self.camera.GrabOne(4000)  # Timeout in milliseconds
-            if not grab_result.GrabSucceeded():
-                logger.error("Failed to capture frame from Pylon camera.")
-                return None
-
-            return self._undistort(grab_result.Array)
+        # Capture a frame from the pylon camera
+        if not self.camera.IsGrabbing():
+            self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
         
-        except pylon.RuntimeException as e:
-            # logger.error(f"{e}")
-            # TODO this happens often, see how to not to use try except
-            self.connect_pylon_camera()
+        # Retrieve the frame with a timeout
+        grab_result = self.camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
+        if grab_result.GrabSucceeded():
+            frame = grab_result.Array
+            grab_result.Release()
+            return frame
+        else:
+            logger.error("Failed to grab frame from Pylon camera.")
+            grab_result.Release()
             return None
-
-    def _undistort(self, frame):
-        """Undistort the frame if calibration data is provided."""
-        if self.camera_matrix is not None and self.dist_coeffs is not None:
-            logger.info("Applying undistortion to Pylon frame.")
-            return cv.undistort(frame, self.camera_matrix, self.dist_coeffs)
-        return frame
-
-    def connect_pylon_camera(self):
-        """Safely release and reconnect the camera."""
-        try:
-            if hasattr(self, 'camera') and self.camera:
-                self.release()
-            self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
-            if not self.camera:
-                logger.error("No Pylon camera found.")
-                raise RuntimeError("No Pylon camera found.")
-            self.camera.Open()
-            model_name = self.camera.GetDeviceInfo().GetModelName()
-            camera_ip = self.camera.GetDeviceInfo().GetIpAddress()
-            logger.info(f"##### Pylon camera connected: {model_name} ({camera_ip}) #####")
-        except Exception as e:
-            logger.error(f"Failed to connect to Pylon camera: {e}")
-            raise RuntimeError(f"Failed to connect to Pylon camera: {e}")
 
     def release(self):
         """Release the Pylon camera."""
         if hasattr(self, 'camera') and self.camera:
+            if self.camera.IsGrabbing():
+                self.camera.StopGrabbing()
             self.camera.Close()
             logger.info("Pylon camera released.")
 
@@ -166,12 +140,8 @@ class CameraHandler:
                 self.camera = USBCamera(cam_num, camera_matrix, dist_coeffs)
                 self.camera_connected = True
             elif cam_type == "pylon":
-                if not PYLON_AVAILABLE:
-                    logger.error("Pypylon library not available. Falling back to file camera.")
-                    cam_type = "file"
-                else:
-                    self.camera = PylonCamera(camera_matrix, dist_coeffs)
-                    self.camera_connected = True
+                self.camera = PylonCamera(camera_index=0)
+                self.camera_connected = True
             
             if cam_type == "file":
                 img_path = config.get("img_path", "save/default.jpg")
@@ -212,7 +182,7 @@ class CameraHandler:
                 logger.error(f"Error releasing camera: {e}")
 
 if __name__ == "__main__":
-    camera = CameraHandler(cam_type="file")
+    camera = CameraHandler(cam_type="pylon")
     test_frame = camera.get_frame()
     if test_frame is not None:
         print(f"Frame shape: {test_frame.shape}")
