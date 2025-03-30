@@ -1,8 +1,14 @@
 from abc import ABC, abstractmethod
 import cv2 as cv
-from pypylon import pylon
-from logger_config import get_logger
 import yaml
+
+try:
+    from pypylon import pylon
+    PYLON_AVAILABLE = True
+except ImportError:
+    PYLON_AVAILABLE = False
+
+from utils.logger_config import get_logger
 
 logger = get_logger("Camera")
 with open('config.yml', 'r') as file:
@@ -69,6 +75,10 @@ class PylonCamera(CameraBase):
     TODO: add retry logic
     """
     def __init__(self, camera_matrix=None, dist_coeffs=None):
+        if not PYLON_AVAILABLE:
+            logger.error("Pypylon library not available. Cannot use Pylon camera.")
+            raise ImportError("Pypylon library not available")
+            
         self.camera = None
         self.connect_pylon_camera()
         self.camera_matrix = camera_matrix
@@ -116,8 +126,9 @@ class PylonCamera(CameraBase):
 
     def release(self):
         """Release the Pylon camera."""
-        self.camera.Close()
-        logger.info("Pylon camera released.")
+        if hasattr(self, 'camera') and self.camera:
+            self.camera.Close()
+            logger.info("Pylon camera released.")
 
 class FileMockInterface:
     def __init__(self, path):
@@ -137,38 +148,67 @@ class CameraHandler:
     """
     Delegates camera operations to the appropriate camera type (USB or Pylon).
     """
-    def __init__(self, cam_type="usb", cam_num=0, camera_matrix=None, dist_coeffs=None):
+    def __init__(self, cam_type="usb", cam_num=None, camera_matrix=None, dist_coeffs=None):
         self.camera = None
         self.camera_connected = False
+        
+        if cam_num is None:
+            cam_num = config.get("cam_num", 0)
+            
         try:
             if cam_type == "usb":
                 self.camera = USBCamera(cam_num, camera_matrix, dist_coeffs)
                 self.camera_connected = True
             elif cam_type == "pylon":
-                self.camera = PylonCamera(camera_matrix, dist_coeffs)
+                if not PYLON_AVAILABLE:
+                    logger.error("Pypylon library not available. Falling back to file camera.")
+                    cam_type = "file"
+                else:
+                    self.camera = PylonCamera(camera_matrix, dist_coeffs)
+                    self.camera_connected = True
+            
+            if cam_type == "file":
+                img_path = config.get("img_path", "save/default.jpg")
+                logger.info(f"Using file camera with image: {img_path}")
+                self.camera = FileMockInterface(path=img_path)
                 self.camera_connected = True
-            elif cam_type == "file":
-                self.camera = FileMockInterface(path=config["img_path"])
-                self.camera_connected = True
-            else:
+            
+            if not self.camera_connected:
                 logger.error(f"Unsupported camera type: {cam_type}")
-                return
         except Exception as e:
             logger.error(f"Failed to initialize {cam_type} camera: {e}")
-            self.camera_connected = False
+            logger.info("Falling back to file camera")
+            try:
+                img_path = config.get("img_path", "save/default.jpg")
+                self.camera = FileMockInterface(path=img_path)
+                self.camera_connected = True
+            except Exception as e2:
+                logger.error(f"Failed to initialize file camera as fallback: {e2}")
+                self.camera_connected = False
 
     def get_frame(self):
         """Delegate frame capture to the selected camera."""
         if not self.camera_connected:
+            logger.error("Camera not connected")
             return None
-        return self.camera.get_frame()
+        try:
+            return self.camera.get_frame()
+        except Exception as e:
+            logger.error(f"Error getting frame: {e}")
+            return None
 
     def release(self):
         """Delegate resource cleanup to the selected camera."""
         if self.camera_connected and self.camera:
-            self.camera.release()
+            try:
+                self.camera.release()
+            except Exception as e:
+                logger.error(f"Error releasing camera: {e}")
 
 if __name__ == "__main__":
-    camera = CameraHandler(cam_type="pylon")
+    camera = CameraHandler(cam_type="file")
     test_frame = camera.get_frame()
-    print(test_frame[0])
+    if test_frame is not None:
+        print(f"Frame shape: {test_frame.shape}")
+    else:
+        print("No frame captured")

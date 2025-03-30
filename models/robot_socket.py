@@ -1,6 +1,6 @@
 from PyQt5.QtNetwork import QTcpSocket
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
-from logger_config import get_logger
+from utils.logger_config import get_logger
 
 # Configure the logger
 logger = get_logger("Socket")
@@ -10,10 +10,11 @@ class RobotSocket(QObject):
     response_received = pyqtSignal(str)  # Emitted when a response is received
     connection_error = pyqtSignal(str)   # Emitted on connection error
 
-    def __init__(self, ip, port):
+    def __init__(self, ip, port, timeout=5.0):
         super().__init__()
         self.ip = ip
         self.port = port
+        self.timeout = timeout  # Timeout in seconds
         self.socket = QTcpSocket()
         self.reconnect_timer = QTimer()
         self.reconnect_timer.timeout.connect(self.try_connect)
@@ -27,7 +28,8 @@ class RobotSocket(QObject):
         """Connect to the robot server."""
         logger.info(f"Connecting to {self.ip}:{self.port}...")
         self.try_connect()
-        # self.socket.connectToHost(self.ip, self.port)
+        # Check if connection was successful
+        return self.socket.state() == QTcpSocket.ConnectedState
 
     def try_connect(self):
         if self.socket.state() != QTcpSocket.ConnectedState:
@@ -41,12 +43,18 @@ class RobotSocket(QObject):
         if self.reconnect_timer.isActive():
             self.reconnect_timer.stop()
 
-    def send_command(self, command, timeout_ack=1000, timeout_task=20000):
+    def send_command(self, command, timeout_ack=None, timeout_task=None):
         """Send a command and wait for acknowledgment and task completion.
            Timeout in ms(0.001s)"""
         if self.socket.state() != QTcpSocket.ConnectedState:
             logger.warning("Socket is not connected.")
             return False
+
+        # Default timeouts
+        if timeout_ack is None:
+            timeout_ack = int(self.timeout * 200)  # 20% of timeout
+        if timeout_task is None:
+            timeout_task = int(self.timeout * 1000)  # Full timeout
 
         try:
             logger.info(f"Sending: {command}")
@@ -122,3 +130,7 @@ class RobotSocket(QObject):
         logger.error(f"Socket not connected") # {error_message}
         if not self.reconnect_timer.isActive():
             self.reconnect_timer.start(5000) # retry every 5 seconds
+
+    def send_and_wait(self, command):
+        """Send a command and wait for acknowledgment and task completion."""
+        return self.send_command(command)
