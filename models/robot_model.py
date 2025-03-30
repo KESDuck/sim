@@ -14,6 +14,7 @@ class RobotModel(QObject):
     """
     Model that handles robot control.
     Manages communication with the robot through a socket connection.
+    TODO: Needed to check if camera is at right position. Should return robot position as list of int
     """
     def __init__(self):
         super().__init__()

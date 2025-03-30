@@ -77,9 +77,8 @@ class PylonCamera(CameraBase):
     """
     Handles Pylon camera operations, including frame capture and preprocessing.
     """
-    def __init__(self, camera_index=0):
+    def __init__(self):
         super().__init__()
-        self.camera_index = camera_index
         self.camera = None
         self.consecutive_failures = 0
         self.max_frame_failures = 5
@@ -93,30 +92,38 @@ class PylonCamera(CameraBase):
                     self.camera.Close()
                 
                 self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
+                
+                # Configure camera settings before opening
                 self.camera.Open()
+
                 model_name = self.camera.GetDeviceInfo().GetModelName()
                 camera_ip = self.camera.GetDeviceInfo().GetIpAddress()
                 logger.info(f"##### Pylon camera connected: {model_name} ({camera_ip}) #####")
+                
+                # Start grabbing after configuration
+                self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
                 self.consecutive_failures = 0
                 return True
+                
             except Exception as e:
                 logger.error(f"Error connecting to Pylon camera: {e}")
                 time.sleep(1)  # Wait before retrying
 
     def get_frame(self):
         """Capture a single frame from the Pylon camera."""
-        if not self.camera or not self.camera.IsOpen():
-            logger.error("Camera is not initialized or not open")
+        if not self.camera or not self.camera.IsGrabbing():
+            logger.error("Camera is not initialized or not grabbing")
+            self.reconnect()
             return None
             
         try:
-            grab_result = self.camera.GrabOne(5000)
+            # Use RetrieveResult with timeout
+            grab_result = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
             
             if grab_result and grab_result.GrabSucceeded():
                 frame = grab_result.Array
                 grab_result.Release()
                 self.consecutive_failures = 0
-                logger.info(f"Successfully grabbed frame with shape: {frame.shape}")
                 return frame
             else:
                 if grab_result:
@@ -124,7 +131,7 @@ class PylonCamera(CameraBase):
                     grab_result.Release()
                     logger.error(f"Frame grab failed: {error_desc}")
                 else:
-                    logger.error("GrabOne returned None")
+                    logger.error("RetrieveResult returned None")
                 self.consecutive_failures += 1
                 
                 if self.consecutive_failures >= self.max_frame_failures:
@@ -132,6 +139,11 @@ class PylonCamera(CameraBase):
                     self.reconnect()
                 return None
                 
+        except pylon.TimeoutException:
+            logger.warning("Frame grab timeout, retrying...")
+            self.consecutive_failures += 1
+            return None
+            
         except Exception as e:
             logger.error(f"Error grabbing frame: {e}")
             self.consecutive_failures += 1
@@ -145,6 +157,8 @@ class PylonCamera(CameraBase):
         """Release the Pylon camera."""
         if self.camera:
             try:
+                if self.camera.IsGrabbing():
+                    self.camera.StopGrabbing()
                 if self.camera.IsOpen():
                     self.camera.Close()
                 logger.info("Pylon camera released")
@@ -183,7 +197,7 @@ class CameraHandler:
             if self.cam_type == "usb":
                 self.camera = USBCamera(self.cam_num, self.camera_matrix, self.dist_coeffs)
             elif self.cam_type == "pylon":
-                self.camera = PylonCamera(camera_index=0)
+                self.camera = PylonCamera()
             else:
                 logger.error(f"Unsupported camera type: {self.cam_type}")
         except Exception as e:
