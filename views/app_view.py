@@ -190,7 +190,8 @@ class AppView(QWidget):
             )
 
         # Draw cross at cursor position
-        self.disp_frame = draw_cross(self.disp_frame, self.controller.cross_cam_xy)
+        cross_x, cross_y = self.controller.cross_cam_xy
+        self.disp_frame = draw_cross(self.disp_frame, cross_x, cross_y)
 
         # Convert to QImage for display
         if len(self.disp_frame.shape) == 3:
