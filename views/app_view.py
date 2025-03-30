@@ -77,7 +77,7 @@ class AppView(QWidget):
 
         ##### Control buttons ####
         self.ui_capture_button = QPushButton("Process", self)
-        self.ui_capture_button.clicked.connect(self.controller.process_frame)
+        self.ui_capture_button.clicked.connect(self.controller.update_frame)
 
         self.ui_save_frame_button = QPushButton("Save Frame", self)
         self.ui_save_frame_button.clicked.connect(self.controller.save_current_frame)
@@ -181,15 +181,13 @@ class AppView(QWidget):
         """Handle keyboard events"""
         key = event.key()
         if key == Qt.Key_Left:
-            self.controller.shift_cross(dx=-10)
+            self.controller.shift_cross(dx=-1)
         elif key == Qt.Key_Right:
-            self.controller.shift_cross(dx=10)
+            self.controller.shift_cross(dx=1)
         elif key == Qt.Key_Up:
-            self.controller.shift_cross(dy=-10)
+            self.controller.shift_cross(dy=-1)
         elif key == Qt.Key_Down:
-            self.controller.shift_cross(dy=10)
-        elif key == Qt.Key_R:
-            self.controller.print_cross_position()
+            self.controller.shift_cross(dy=1)
         else:
             super().keyPressEvent(event)
 
