@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtWidgets import QGraphicsScene, QGraphicsPixmapItem, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QSpinBox, QComboBox, QMenuBar, QAction, QTabWidget, QLabel
+from PyQt5.QtWidgets import QGraphicsScene, QGraphicsPixmapItem, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QSpinBox, QComboBox, QMenuBar, QAction, QTabWidget, QLabel, QStatusBar
 from PyQt5.QtGui import QImage, QPixmap, QBrush, QColor
 import signal
 import numpy as np
@@ -19,32 +19,25 @@ class AppView(QWidget):
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
+        
+        # Setup UI components
         self.setup_ui()
-
-        self.disp_frame = None
-
-        # Timer for updating frames
-        self.capture_timer = QTimer()
-        self.capture_timer.timeout.connect(self.capture_image)
-
-        self.screen_timer = QTimer()
-        self.screen_timer.timeout.connect(self.update_screen)
-
-        # Connect signals from controller
+        
+        # Connect signals from controller to view methods
+        self.controller.frame_updated.connect(self.update_display)
+        self.controller.status_message.connect(self.update_status)
         self.controller.cell_index_changed.connect(self.ui_cell_spinbox.setValue)
         self.controller.cell_max_changed.connect(self.ui_cell_spinbox.setMaximum)
         
-        # Handle Ctrl+C to safe close app
+        # Handle Ctrl+C to safely close app
         signal.signal(signal.SIGINT, lambda signal_received, frame: self.close())
         
-        self.start_timers()
+        # Set initial view state (controller already defaults to "paused orig")
+        self.ui_view_states.setCurrentIndex(1)  # "paused orig" is index 1
         
-        # pause state right after starting
-        self.ui_view_states.setCurrentIndex(1)
-        self.capture_image()
-        
-        logger.info("Press R Key to note current cross position")
-        
+        # Initialize with proper state
+        self.view_state_changed(self.ui_view_states.currentText())
+
     def setup_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("Image Viewer with Robot Control")
@@ -72,22 +65,22 @@ class AppView(QWidget):
         self.button_layout = QHBoxLayout()
         engineer_layout.addLayout(self.button_layout)
 
-        ##### Cell index spinbox #####
-        self.ui_cell_spinbox = QSpinBox() # stores the selected cell index
+        ##### Cell index spinbox ####
+        self.ui_cell_spinbox = QSpinBox()  # stores the selected cell index
         self.ui_cell_spinbox.setRange(-1, 0)
         self.ui_cell_spinbox.valueChanged.connect(self.on_cell_spinbox_changed)
 
-        ##### UI States #####
+        ##### UI States ####
         self.ui_view_states = QComboBox()
         self.ui_view_states.addItems(["live", "paused orig", "paused thres", "paused contours"])
         self.ui_view_states.currentTextChanged.connect(self.view_state_changed)
 
-        ##### Control buttons #####
+        ##### Control buttons ####
         self.ui_capture_button = QPushButton("Process", self)
-        self.ui_capture_button.clicked.connect(self.capture_image)
+        self.ui_capture_button.clicked.connect(self.controller.process_frame)
 
         self.ui_save_frame_button = QPushButton("Save Frame", self)
-        self.ui_save_frame_button.clicked.connect(self.on_save_frame)
+        self.ui_save_frame_button.clicked.connect(self.controller.save_current_frame)
         
         self.ui_move_to_capture = QPushButton("Go Capture", self)
         self.ui_move_to_capture.clicked.connect(self.controller.position_and_capture)
@@ -111,10 +104,13 @@ class AppView(QWidget):
         self.button_layout.addWidget(self.ui_insert_batch_button)
         self.button_layout.addWidget(self.ui_echo_button)
 
+        # Status bar for messages
+        self.status_bar = QStatusBar()
+        engineer_layout.addWidget(self.status_bar)
+        
         # Create User tab
         user_tab = QWidget()
         user_layout = QVBoxLayout(user_tab)
-        # Add placeholder for user interface
         user_layout.addWidget(QLabel("User Interface Coming Soon..."))
         
         # Add tabs to tab widget
@@ -124,105 +120,50 @@ class AppView(QWidget):
         # Set the main layout
         self.setLayout(self.main_layout)
 
-    def view_state_changed(self, state):
-        logger.info(f"View state: {state}")
-        self.start_timers()
-
-    def start_timers(self):
-        """Start the timers based on the current state."""
-        self.screen_timer.start(100)  # overlay remains active in paused states
-
-        if self.ui_view_states.currentText() == "live":
-            self.capture_timer.start(1000)  # live updates
+    def update_display(self, frame):
+        """Update the display with the provided frame."""
+        if frame is None:
+            return
+            
+        # Convert to QImage
+        if len(frame.shape) == 3:
+            h, w, c = frame.shape
+            qimg = QImage(frame.data, w, h, w * c, QImage.Format_RGB888)
         else:
-            self.capture_timer.stop() # use stored image to display
+            h, w = frame.shape
+            qimg = QImage(frame.data, w, h, w, QImage.Format_Grayscale8)
+        
+        # Update display
+        pixmap = QPixmap.fromImage(qimg)
+        if self.pixmap_item is None:
+            self.pixmap_item = self.scene.addPixmap(pixmap)
+        else:
+            self.pixmap_item.setPixmap(pixmap)
+        
+        # Set scene rect to match image size
+        self.scene.setSceneRect(0, 0, pixmap.width(), pixmap.height())
+        
+        # Adjust minimum scale of graphics view
+        self.graphics_view.set_min_scale(self.scene.sceneRect())
+
+    def update_status(self, message):
+        """Update the status bar with a message."""
+        self.status_bar.showMessage(message)
 
     def on_cell_spinbox_changed(self, value):
         """Handle cell index change from UI"""
         self.controller.set_cell_index(value)
 
     def toggle_batch_insert(self):
-        """
-        Toggle batch insertion mode
-        TODO: change to insert_batch for capturing
-        """
+        """Toggle batch insertion mode"""
         self.controller.toggle_pause_insert()
         button_text = "Resume Batch" if self.controller.pause_insert else "Pause Batch"
         self.ui_insert_batch_button.setText(button_text)
 
-    def capture_image(self):
-        """
-        Trigger image capture and processing
-        TODO: to fix - process image does not work if view_states is live
-        """
-        cur_state = self.ui_view_states.currentText()
-
-        # capture image, process if needed
-        if cur_state == "live":
-            self.controller.live_capture()
-        else:
-            if not self.controller.capture_and_process():
-                logger.error("Process image failure")
-
-    def update_screen(self):
-        """Update the display based on current view state"""
-        if not hasattr(self, 'ui_view_states') or self.ui_view_states is None:
-            logger.error("UI components have been deleted.")
-            return
-
-        cur_state = self.ui_view_states.currentText()
-
-        # Get frame from controller based on view state
-        self.disp_frame = self.controller.get_frame_for_display(cur_state)
-
-        if self.disp_frame is None:
-            # warning if there is no processed screen
-            if cur_state == "live":
-                logger.warning("Skipped frame")
-            else: # processed state
-                logger.warning("Nothing to display, please capture and process first")
-            return
-        else:
-            # Make a copy to avoid modifying original frame
-            # TODO: improve comment - copy the frame away from controller (so later can be saved?)
-            self.disp_frame = self.disp_frame.copy()
-
-        if cur_state != "live": # processed state
-            # Draw points on processed frames
-            self.disp_frame = draw_points(
-                self.disp_frame, 
-                self.controller.cells_img_xy, 
-                self.controller.cell_index, 
-                size=10
-            )
-
-        # Draw cross at cursor position
-        cross_x, cross_y = self.controller.cross_cam_xy
-        self.disp_frame = draw_cross(self.disp_frame, cross_x, cross_y)
-
-        # Convert to QImage for display
-        if len(self.disp_frame.shape) == 3:
-            h, w, c = self.disp_frame.shape
-            qimg = QImage(self.disp_frame.data, w, h, w * c, QImage.Format_RGB888) 
-        else:
-            h, w = self.disp_frame.shape
-            qimg = QImage(self.disp_frame.data, w, h, w, QImage.Format_Grayscale8)
-
-        # Update display
-        pixmap = QPixmap.fromImage(qimg)
-
-        # Update scene
-        if self.pixmap_item is None:
-            self.pixmap_item = self.scene.addPixmap(pixmap)
-        else:
-            self.pixmap_item.setPixmap(pixmap)
-
-        # Set scene rect to match image size
-        w, h = pixmap.width(), pixmap.height()
-        self.scene.setSceneRect(0, 0, w, h)
-        
-        # Set minimum scale to fit the image in the view
-        self.graphics_view.set_min_scale(self.scene.sceneRect())
+    def view_state_changed(self, state):
+        """Handle view state change from UI"""
+        logger.info(f"View state: {state}")
+        self.controller.set_view_state(state)
 
     def update_cross_position(self, scene_pos):
         """
@@ -235,19 +176,10 @@ class AppView(QWidget):
         
         # Update cross position in controller
         self.controller.set_cross_position(x, y)
-        
-        # Log the new position
-        logger.info(f"Cross position updated to ({x}, {y})")
-
-    def on_save_frame(self):
-        """Save current frame"""
-        self.controller.save_current_frame()
 
     def keyPressEvent(self, event):
         """Handle keyboard events"""
         key = event.key()
-        
-        # Handle cursor movement with arrow keys
         if key == Qt.Key_Left:
             self.controller.shift_cross(dx=-10)
         elif key == Qt.Key_Right:
@@ -256,10 +188,8 @@ class AppView(QWidget):
             self.controller.shift_cross(dy=-10)
         elif key == Qt.Key_Down:
             self.controller.shift_cross(dy=10)
-        # Print current position
         elif key == Qt.Key_R:
             self.controller.print_cross_position()
-        # Pass other keys to parent
         else:
             super().keyPressEvent(event)
 
