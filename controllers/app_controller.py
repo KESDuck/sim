@@ -116,6 +116,9 @@ class AppController(QObject):
         # Current view state (live/paused/etc.)
         self.current_view_state = "paused orig"
         
+        # Current active tab ("Engineer" or "User")
+        self.current_tab = "Engineer"
+        
         # Emit initial status message
         self.status_message.emit("Press R Key to note current cross position")
 
@@ -149,7 +152,7 @@ class AppController(QObject):
         logger.info(f"View state changed to: {state}")
         
         # Adjust frame timer based on view state
-        if state == "live":
+        if state == "live" and self.current_tab == "Engineer":
             if not self.frame_timer.isActive():
                 self.frame_timer.start(33)
         else:
@@ -171,6 +174,7 @@ class AppController(QObject):
     def update_frame(self):
         """Process frame when requested (e.g., via Process button)."""
         # Get the current state
+        logger.info(f"Updating frame in state: {self.current_view_state}")
         if self.current_view_state == "live":
             # For live mode, just capture a new frame
             if self.vision.live_capture():
@@ -352,4 +356,19 @@ class AppController(QObject):
     def close(self):
         """Clean up resources"""
         self.robot.close()
-        self.vision.close() 
+        self.vision.close()
+
+    def set_current_tab(self, tab_name):
+        """Set the current active tab."""
+        self.current_tab = tab_name
+        logger.info(f"Active tab changed to: {tab_name}")
+        
+        # If changing tabs, update frame timer state
+        if self.current_view_state == "live":
+            if tab_name == "Engineer" and not self.frame_timer.isActive():
+                self.frame_timer.start(33)
+            elif tab_name != "Engineer" and self.frame_timer.isActive():
+                self.frame_timer.stop()
+                # Emit a single frame for the current state
+                frame = self.get_frame_for_display(self.current_view_state)
+                self._prepare_and_emit_frame(frame) 

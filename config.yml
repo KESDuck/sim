@@ -1,6 +1,6 @@
 cam_type: "pylon"  # pylon or usb or file
 cam_num: 0  # used if usb camera
-save_folder: "save/"
+save_folder: "images/"
 img_path: "save/2025-02-10 122138.jpg" # used if file camera
 
 homo_matrix:
