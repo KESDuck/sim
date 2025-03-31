@@ -1,7 +1,7 @@
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QGraphicsScene, QPushButton, QVBoxLayout, 
                            QHBoxLayout, QWidget, QComboBox, 
-                           QStatusBar)
+                           QStatusBar, QGroupBox, QLabel)
 from PyQt5.QtGui import QImage, QPixmap
 import numpy as np
 
@@ -48,6 +48,9 @@ class EngineerTabView(QWidget):
         self.ui_view_states.currentTextChanged.connect(self.view_state_changed)
 
         ##### Control buttons ####
+        self.start_calibration_button = QPushButton("Start Calibration")
+        self.start_calibration_button.clicked.connect(self.on_start_calibration)
+
         self.ui_capture_button = QPushButton("Process", self)
         self.ui_capture_button.clicked.connect(self.controller.update_frame)
 
@@ -67,6 +70,7 @@ class EngineerTabView(QWidget):
         self.ui_echo_button.clicked.connect(self.controller.echo_test)
 
         # Add engineer mode widgets
+        self.button_layout.addWidget(self.start_calibration_button)
         self.button_layout.addWidget(self.ui_capture_button)
         self.button_layout.addWidget(self.ui_view_states)
         self.button_layout.addWidget(self.ui_save_frame_button)
@@ -78,6 +82,21 @@ class EngineerTabView(QWidget):
         # Status bar for messages
         self.status_bar = QStatusBar()
         self.layout.addWidget(self.status_bar)
+    
+    def on_start_calibration(self):
+        """Handle calibration start button"""
+        self.start_calibration_button.setEnabled(False)
+        self.update_status("Calibration in progress...")
+        
+        # Run calibration
+        success = self.controller.start_calibration()
+        
+        # Update UI based on calibration result
+        self.start_calibration_button.setEnabled(True)
+        if success:
+            self.update_status("Calibration completed successfully")
+        else:
+            self.update_status("Calibration failed - check log for details")
     
     def update_display(self, frame):
         """Update the display with the provided frame."""

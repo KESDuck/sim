@@ -130,3 +130,43 @@ def add_spinning_indicator(spin_angle, frame):
         cv.ellipse(frame, center, (radius, radius), 0, start_angle, end_angle, (255, 0, 0), thickness)
 
     return frame
+
+def draw_calibration_pattern(frame, pattern_corners, pattern_found=False):
+    """
+    Draw detected calibration pattern on the frame
+    
+    Args:
+        frame: Image frame to draw on
+        pattern_corners: Corners of the detected pattern
+        pattern_found: Whether a pattern was successfully detected
+        
+    Returns:
+        Frame with pattern visualization
+    """
+    # Convert grayscale to color if needed
+    if len(frame.shape) == 2 or frame.shape[2] == 1:
+        display_frame = cv.cvtColor(frame, cv.COLOR_GRAY2BGR)
+    else:
+        display_frame = frame.copy()
+        
+    # If pattern was found, draw it
+    if pattern_found and pattern_corners is not None:
+        # Draw the corners
+        cv.drawChessboardCorners(display_frame, pattern_corners.shape[:2], pattern_corners, pattern_found)
+        
+        # Calculate and mark the center of the pattern
+        if pattern_corners.shape[0] > 0:
+            center_x = np.mean(pattern_corners[:, 0, 0])
+            center_y = np.mean(pattern_corners[:, 0, 1])
+            cv.circle(display_frame, (int(center_x), int(center_y)), 10, (0, 255, 0), -1)
+            
+            # Add text with coordinates
+            text_pos = (int(center_x) + 15, int(center_y) - 15)
+            cv.putText(display_frame, f"({int(center_x)}, {int(center_y)})", 
+                    text_pos, cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+    else:
+        # If no pattern found, add text indicating this
+        cv.putText(display_frame, "No calibration pattern detected", 
+                (50, 50), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                
+    return display_frame

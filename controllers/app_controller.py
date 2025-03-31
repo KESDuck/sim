@@ -2,9 +2,10 @@ from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 import numpy as np
 import time
 import yaml
+import cv2
 
 from utils.logger_config import get_logger
-from utils.tools import map_image_to_robot, save_image, draw_cross, draw_points
+from utils.tools import map_image_to_robot, save_image, draw_cross, draw_points, draw_calibration_pattern
 from models.robot_model import RobotModel
 from models.vision_model import VisionModel
 
@@ -77,6 +78,144 @@ class CellManager:
         return self.cells_xy[self.current_index]
 
 
+class CalibrationManager:
+    """
+    Manages the calibration process to determine homography matrix
+    between camera coordinate system and robot coordinate system.
+    """
+    def __init__(self, robot_model, vision_model):
+        self.robot = robot_model
+        self.vision = vision_model
+        # Calibration state
+        self.current_position_idx = 0
+        
+        # Calibration pattern properties (chessboard by default)
+        self.pattern_size = (7, 7)  # Number of inner corners
+        
+        # Points for calibration
+        self.pixel_points = []
+        self.robot_points = []
+        
+        # Robot positions for calibration - distribute across workspace
+        # These can be adjusted based on the workspace size
+        z_height = -5.0  # Fixed height for calibration
+        self.calibration_positions = [
+            (0, 0, z_height, 0),      # Center
+            (50, 0, z_height, 0),     # Right
+            (-50, 0, z_height, 0),    # Left
+            (0, 50, z_height, 0),     # Top
+            (0, -50, z_height, 0),    # Bottom
+            (50, 50, z_height, 0),    # Top-Right
+            (-50, 50, z_height, 0),   # Top-Left
+            (50, -50, z_height, 0),   # Bottom-Right
+            (-50, -50, z_height, 0)   # Bottom-Left
+        ]
+        
+    def run_calibration(self):
+        """Run the entire calibration process automatically"""
+        logger.info("Starting automatic calibration process")
+        self.pixel_points = []
+        self.robot_points = []
+        
+        for idx, position in enumerate(self.calibration_positions):
+            logger.info(f"Moving to calibration position {idx+1}/{len(self.calibration_positions)}")
+            
+            # Move to position
+            success = self.robot.jump(*position)
+            if not success:
+                logger.error(f"Failed to move to calibration position {idx+1}")
+                continue
+                
+            # Wait for robot to settle
+            time.sleep(1)
+            
+            # Capture and process image
+            if not self.vision.capture_and_process():
+                logger.error(f"Failed to capture image at position {idx+1}")
+                continue
+                
+            # Detect pattern
+            frame = self.vision.frame_camera_stored
+            pixel_coords = self.detect_pattern(frame)
+            
+            if pixel_coords is None:
+                logger.warning(f"Could not detect pattern at position {idx+1}")
+                continue
+                
+            # Store calibration pair
+            self.pixel_points.append(pixel_coords)
+            self.robot_points.append((position[0], position[1]))  # x, y coordinates
+            logger.info(f"Captured point {len(self.pixel_points)}/{len(self.calibration_positions)}")
+        
+        # Calculate homography when all points collected
+        return self.calculate_homography()
+        
+    def detect_pattern(self, frame):
+        """Detect calibration pattern in the image"""
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # Find chessboard corners
+        ret, corners = cv2.findChessboardCorners(gray, self.pattern_size, None)
+        
+        if ret:
+            # Refine corner detection
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+            corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+            
+            # Calculate center of pattern
+            center_x = np.mean(corners[:, 0, 0])
+            center_y = np.mean(corners[:, 0, 1])
+            
+            # Draw corners on the frame for visualization
+            visual_frame = draw_calibration_pattern(frame, corners, True)
+            # Store this visualization frame for display
+            self.vision.frame_camera_stored = visual_frame
+            
+            return (center_x, center_y)
+            
+        # Could not find the pattern
+        # Create visualization showing pattern not found
+        visual_frame = draw_calibration_pattern(frame, None, False)
+        self.vision.frame_camera_stored = visual_frame
+        return None
+        
+    def calculate_homography(self):
+        """Calculate homography matrix from collected points"""
+        if len(self.pixel_points) < 4:
+            logger.error("Not enough points for calibration")
+            return None
+            
+        # Convert to numpy arrays
+        src_points = np.array(self.pixel_points, dtype=np.float32)
+        dst_points = np.array(self.robot_points, dtype=np.float32)
+        
+        # Calculate homography matrix
+        H, status = cv2.findHomography(src_points, dst_points, cv2.RANSAC, 5.0)
+        
+        if H is None:
+            logger.error("Failed to calculate homography matrix")
+            return None
+            
+        # Calculate reprojection error
+        total_error = 0
+        for i in range(len(src_points)):
+            pixel_pt = np.array([src_points[i][0], src_points[i][1], 1])
+            transformed = np.dot(H, pixel_pt)
+            transformed /= transformed[2]  # Normalize
+            
+            robot_pt = dst_points[i]
+            error = np.sqrt((transformed[0] - robot_pt[0])**2 + (transformed[1] - robot_pt[1])**2)
+            total_error += error
+            
+        avg_error = total_error / len(src_points)
+        logger.info(f"Calibration complete with average error: {avg_error:.2f}")
+        logger.info(f"Homography matrix:\n{H}")
+        
+        # Store the homography matrix
+        self.homo_matrix = H
+        return H
+
+
 class AppController(QObject):
     """
     Controller that coordinates between models and views.
@@ -96,6 +235,7 @@ class AppController(QObject):
         # Initialize managers
         self.cross_manager = CrossPositionManager(config["homo_matrix"])
         self.cell_manager = CellManager()
+        self.calibration_manager = CalibrationManager(self.robot, self.vision)
 
         # keep track if it is batch inserting 
         self.pause_insert = False
@@ -372,3 +512,33 @@ class AppController(QObject):
                 # Emit a single frame for the current state
                 frame = self.get_frame_for_display(self.current_view_state)
                 self._prepare_and_emit_frame(frame) 
+
+    # Calibration methods
+    def start_calibration(self):
+        """Start the calibration procedure"""
+        logger.info("Starting calibration procedure")
+        self.status_message.emit("Starting calibration...")
+        
+        # Set to live view during calibration
+        previous_state = self.current_view_state
+        self.set_view_state("live")
+        
+        # Run the calibration
+        homo_matrix = self.calibration_manager.run_calibration()
+        
+        if homo_matrix is not None:
+            # Update the cross manager with new homography matrix, will have to update to different places
+            # self.cross_manager.homo_matrix = homo_matrix
+            self.status_message.emit("Calibration completed successfully")
+            
+            # Print out the matrix in a readable format
+            matrix_str = "\nCalibration Matrix:\n"
+            for row in homo_matrix:
+                matrix_str += f"{row}\n"
+            logger.info(matrix_str)
+            
+            return True
+        else:
+            self.set_view_state(previous_state)
+            self.status_message.emit("Calibration failed")
+            return False
