@@ -1,6 +1,6 @@
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QGraphicsScene, QPushButton, QVBoxLayout, 
-                           QHBoxLayout, QWidget, QSpinBox, QComboBox, 
+                           QHBoxLayout, QWidget, QComboBox, 
                            QStatusBar)
 from PyQt5.QtGui import QImage, QPixmap
 import numpy as np

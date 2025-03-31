@@ -111,7 +111,7 @@ class AppController(QObject):
         self.frame_timer = QTimer(self)
         self.frame_timer.timeout.connect(self.update_frame)
         # Start timer at ~30fps (33ms interval)
-        self.frame_timer.start(33)
+        self.frame_timer.start(100)
 
         # Current view state (live/paused/etc.)
         self.current_view_state = "paused orig"
@@ -154,7 +154,7 @@ class AppController(QObject):
         # Adjust frame timer based on view state
         if state == "live" and self.current_tab == "Engineer":
             if not self.frame_timer.isActive():
-                self.frame_timer.start(33)
+                self.frame_timer.start(100)
         else:
             # For non-live states, stop continuous updates but emit a single frame
             if self.frame_timer.isActive():
@@ -366,7 +366,7 @@ class AppController(QObject):
         # If changing tabs, update frame timer state
         if self.current_view_state == "live":
             if tab_name == "Engineer" and not self.frame_timer.isActive():
-                self.frame_timer.start(33)
+                self.frame_timer.start(100)
             elif tab_name != "Engineer" and self.frame_timer.isActive():
                 self.frame_timer.stop()
                 # Emit a single frame for the current state
