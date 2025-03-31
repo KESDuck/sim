@@ -48,6 +48,7 @@ class AppView(QWidget):
         
         # Create tab widget
         self.tabs = QTabWidget()
+        self.tabs.currentChanged.connect(self.on_tab_changed)
         self.main_layout.addWidget(self.tabs)
         
         # Create Engineer tab
@@ -194,4 +195,11 @@ class AppView(QWidget):
     def closeEvent(self, event):
         """Handle application closing"""
         self.controller.close()
-        super().closeEvent(event) 
+        super().closeEvent(event)
+
+    def on_tab_changed(self, index):
+        """Handle tab change events"""
+        tab_name = self.tabs.tabText(index)
+        logger.info(f"Tab changed to: {tab_name}")
+        self.controller.set_current_tab(tab_name) 
+        

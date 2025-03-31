@@ -1,8 +1,9 @@
 # Byte-compiled files
 __pycache__/
 .ipynb_checkpoints/
-save/
+images/
 *.py[cod]
+.mypy_cache/
 
 # Virtual environment
 venv/
