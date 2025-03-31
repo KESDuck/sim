@@ -1,12 +1,8 @@
-from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtWidgets import QGraphicsScene, QGraphicsPixmapItem, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QSpinBox, QComboBox, QMenuBar, QAction, QTabWidget, QLabel, QStatusBar
-from PyQt5.QtGui import QImage, QPixmap, QBrush, QColor
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QVBoxLayout, QWidget, QTabWidget
 import signal
-import numpy as np
 
 from utils.logger_config import get_logger
-from views.graphics_view import GraphicsView
-from utils.tools import draw_cross, save_image, draw_points
 from views.engineer_tab_view import EngineerTabView
 from views.user_tab_view import UserTabView
 
@@ -57,26 +53,6 @@ class AppView(QWidget):
         
         # Set the main layout
         self.setLayout(self.main_layout)
-
-    def update_display(self, frame):
-        """Update the display with the provided frame."""
-        # This method is now handled by the EngineerTabView
-        pass
-
-    def update_status(self, message):
-        """Update the status bar with a message."""
-        # This method is now handled by the EngineerTabView
-        pass
-
-    def toggle_batch_insert(self):
-        """Toggle batch insertion mode"""
-        # This method is now handled by the EngineerTabView
-        pass
-
-    def view_state_changed(self, state):
-        """Handle view state change from UI"""
-        # This method is now handled by the EngineerTabView
-        pass
 
     def update_cross_position(self, scene_pos):
         """
