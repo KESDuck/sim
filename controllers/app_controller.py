@@ -3,6 +3,7 @@ import numpy as np
 import time
 import yaml
 import cv2
+from PyQt5.QtWidgets import QApplication
 
 from utils.logger_config import get_logger
 from utils.tools import map_image_to_robot, save_image, draw_cross, draw_points, draw_calibration_pattern
@@ -90,7 +91,7 @@ class CalibrationManager:
         self.current_position_idx = 0
         
         # Calibration pattern properties (chessboard by default)
-        self.pattern_size = (7, 7)  # Number of inner corners
+        self.pattern_size = (6, 8)  # Number of inner corners
         
         # Points for calibration
         self.pixel_points = []
@@ -111,51 +112,22 @@ class CalibrationManager:
             (-50, -50, z_height, 0)   # Bottom-Left
         ]
         
-    def run_calibration(self):
-        """Run the entire calibration process automatically"""
-        logger.info("Starting automatic calibration process")
-        self.pixel_points = []
-        self.robot_points = []
-        
-        for idx, position in enumerate(self.calibration_positions):
-            logger.info(f"Moving to calibration position {idx+1}/{len(self.calibration_positions)}")
-            
-            # Move to position
-            success = self.robot.jump(*position)
-            if not success:
-                logger.error(f"Failed to move to calibration position {idx+1}")
-                continue
-                
-            # Wait for robot to settle
-            time.sleep(1)
-            
-            # Capture and process image
-            if not self.vision.capture_and_process():
-                logger.error(f"Failed to capture image at position {idx+1}")
-                continue
-                
-            # Detect pattern
-            frame = self.vision.frame_camera_stored
-            pixel_coords = self.detect_pattern(frame)
-            
-            if pixel_coords is None:
-                logger.warning(f"Could not detect pattern at position {idx+1}")
-                continue
-                
-            # Store calibration pair
-            self.pixel_points.append(pixel_coords)
-            self.robot_points.append((position[0], position[1]))  # x, y coordinates
-            logger.info(f"Captured point {len(self.pixel_points)}/{len(self.calibration_positions)}")
-        
-        # Calculate homography when all points collected
-        return self.calculate_homography()
-        
     def detect_pattern(self, frame):
         """Detect calibration pattern in the image"""
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Ensure we have a grayscale image for detection
+        if len(frame.shape) == 3:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = frame  # Already grayscale
         
         # Find chessboard corners
         ret, corners = cv2.findChessboardCorners(gray, self.pattern_size, None)
+        
+        # Make a color copy of original frame for visualization
+        if len(frame.shape) == 2:  # If grayscale
+            visual_frame = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        else:
+            visual_frame = frame.copy()
         
         if ret:
             # Refine corner detection
@@ -166,16 +138,21 @@ class CalibrationManager:
             center_x = np.mean(corners[:, 0, 0])
             center_y = np.mean(corners[:, 0, 1])
             
-            # Draw corners on the frame for visualization
-            visual_frame = draw_calibration_pattern(frame, corners, True)
+            # Draw the pattern on visualization frame
+            cv2.drawChessboardCorners(visual_frame, self.pattern_size, corners, ret)
+            cv2.circle(visual_frame, (int(center_x), int(center_y)), 10, (0, 255, 0), -1)
+            cv2.putText(visual_frame, f"({int(center_x)}, {int(center_y)})", 
+                       (int(center_x) + 15, int(center_y) - 15), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            
             # Store this visualization frame for display
             self.vision.frame_camera_stored = visual_frame
             
             return (center_x, center_y)
             
         # Could not find the pattern
-        # Create visualization showing pattern not found
-        visual_frame = draw_calibration_pattern(frame, None, False)
+        cv2.putText(visual_frame, "No calibration pattern detected", 
+                   (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
         self.vision.frame_camera_stored = visual_frame
         return None
         
@@ -314,7 +291,6 @@ class AppController(QObject):
     def update_frame(self):
         """Process frame when requested (e.g., via Process button)."""
         # Get the current state
-        logger.info(f"Updating frame in state: {self.current_view_state}")
         if self.current_view_state == "live":
             # For live mode, just capture a new frame
             if self.vision.live_capture():
@@ -523,12 +499,59 @@ class AppController(QObject):
         previous_state = self.current_view_state
         self.set_view_state("live")
         
+        # Reset calibration points
+        self.calibration_manager.pixel_points = []
+        self.calibration_manager.robot_points = []
+        
         # Run the calibration
-        homo_matrix = self.calibration_manager.run_calibration()
+        for idx, position in enumerate(self.calibration_manager.calibration_positions):
+            logger.info(f"Moving to calibration position {idx+1}/{len(self.calibration_manager.calibration_positions)}")
+            self.status_message.emit(f"Calibration: position {idx+1} of {len(self.calibration_manager.calibration_positions)}")
+            
+            # Move to position
+            self.calibration_manager.robot.jump(*position)
+                
+            # Wait for robot to settle
+            time.sleep(1)
+            
+            # Just capture frame without processing centroids
+            if not self.vision.live_capture():
+                logger.error(f"Failed to capture image at position {idx+1}")
+                continue
+                
+            # Store captured frame 
+            self.vision.frame_camera_stored = self.vision.frame_camera_live.copy()
+                
+            # Detect pattern
+            frame = self.vision.frame_camera_stored
+            pixel_coords = self.calibration_manager.detect_pattern(frame)
+            
+            # Show the current frame to the user with the detected pattern
+            # The pattern visualization is stored in vision.frame_camera_stored by detect_pattern
+            self._prepare_and_emit_frame(self.vision.frame_camera_stored)
+            
+            # Process Qt events to update UI
+            QApplication.processEvents()
+            
+            if pixel_coords is None:
+                logger.warning(f"Could not detect pattern at position {idx+1}")
+                continue
+                
+            # Store calibration pair
+            self.calibration_manager.pixel_points.append(pixel_coords)
+            self.calibration_manager.robot_points.append((position[0], position[1]))
+            logger.info(f"Captured point {len(self.calibration_manager.pixel_points)}/{len(self.calibration_manager.calibration_positions)}")
+            
+            # Pause briefly to let the user see the detection
+            time.sleep(0.5)
+            QApplication.processEvents()
+        
+        # Calculate homography when all points collected
+        homo_matrix = self.calibration_manager.calculate_homography()
         
         if homo_matrix is not None:
-            # Update the cross manager with new homography matrix, will have to update to different places
-            # self.cross_manager.homo_matrix = homo_matrix
+            # Update the cross manager with new homography matrix
+            self.cross_manager.homo_matrix = homo_matrix
             self.status_message.emit("Calibration completed successfully")
             
             # Print out the matrix in a readable format
@@ -541,4 +564,4 @@ class AppController(QObject):
         else:
             self.set_view_state(previous_state)
             self.status_message.emit("Calibration failed")
-            return False
+            return False 
