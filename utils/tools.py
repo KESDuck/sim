@@ -19,14 +19,25 @@ def save_image(image, folder):
     cv.imwrite(path, image_bgr)
     print(f"Image saved to {path}")
 
-def draw_cross(image, x, y, color=(0, 0, 255), size=25):
-    # Check if the image is grayscale
-    if len(image.shape) == 2 or image.shape[2] == 1:  # Grayscale image
-        image = cv.cvtColor(image, cv.COLOR_GRAY2BGR)
-
-    # Draw the cross on the image
-    cv.drawMarker(image, (x, y), color, markerType=cv.MARKER_CROSS, markerSize=size, thickness=1)
-
+def draw_cross(image, x, y, color=(0, 255, 0), size=30):
+    """Draw a cross marker on the image at the specified coordinates."""
+    # Convert coordinates to integers
+    x_int = int(x)
+    y_int = int(y)
+    
+    # Check if we're at a half-pixel position
+    if x % 1 == 0.5 or y % 1 == 0.5:
+        # Draw first cross at the lower integer position
+        cv.drawMarker(image, (x_int, y_int), color, markerType=cv.MARKER_CROSS, markerSize=size, thickness=1)
+        
+        # Draw second cross at the upper integer position
+        next_x = x_int + 1 if x % 1 == 0.5 else x_int
+        next_y = y_int + 1 if y % 1 == 0.5 else y_int
+        cv.drawMarker(image, (next_x, next_y), color, markerType=cv.MARKER_CROSS, markerSize=size, thickness=1)
+    else:
+        # Draw single cross at integer position
+        cv.drawMarker(image, (x_int, y_int), color, markerType=cv.MARKER_CROSS, markerSize=size, thickness=1)
+    
     return image
 
 def draw_points(image, points, current_index, size=5):
@@ -130,3 +141,30 @@ def add_spinning_indicator(spin_angle, frame):
         cv.ellipse(frame, center, (radius, radius), 0, start_angle, end_angle, (255, 0, 0), thickness)
 
     return frame
+
+def add_border(image, color=(0, 0, 0), thickness=1):
+    """
+    Adds a border around the image with specified color and thickness.
+    
+    Args:
+        image: The input image (numpy array)
+        color: Border color in BGR format (default: black)
+        thickness: Border thickness in pixels (default: 1px)
+        
+    Returns:
+        Image with border added
+    """
+    # Make a copy to avoid modifying the original
+    img_with_border = image.copy()
+    
+    # Get image dimensions
+    h, w = img_with_border.shape[:2]
+    
+    # If grayscale, convert to BGR for the border
+    if len(img_with_border.shape) == 2:
+        img_with_border = cv.cvtColor(img_with_border, cv.COLOR_GRAY2BGR)
+    
+    # Draw rectangle around the edge
+    cv.rectangle(img_with_border, (0, 0), (w-1, h-1), color, thickness)
+    
+    return img_with_border

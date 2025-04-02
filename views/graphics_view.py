@@ -44,7 +44,7 @@ class GraphicsView(QGraphicsView):
 
     def wheelEvent(self, event):
         """Handle mouse wheel events to zoom in/out while enforcing minimum zoom."""
-        zoom_in_factor = 1.1
+        zoom_in_factor = 1.05
         zoom_out_factor = 1 / zoom_in_factor
 
         if event.angleDelta().y() > 0:  # Zoom in

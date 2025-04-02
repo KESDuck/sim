@@ -97,7 +97,15 @@ acA2500-14gm (2592x1944)
     - max distortion 4px
     - 10.9pixel/mm
     - each cell 55x55 pixel
-
+- z= (robot -18mm), 12mm:
+    - FOV: 260x190
+    - max distortion: 0.3mm
+    - 10.0 pixel/mm
+Taobao acA2500-14gm (2592x1944)
+- z= (robot -18mm), 12mm:
+    - FOV: 260x190
+    - max distortion: 0.3mm
+    - 10.0 pixel/mm
 
 ## Vision cycle
 ```
