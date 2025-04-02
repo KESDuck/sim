@@ -72,14 +72,19 @@ class AppView(QWidget):
         
         if self.tabs.currentIndex() == 0:  # Engineer tab
             key = event.key()
+            # Check if shift is pressed
+            shift_pressed = event.modifiers() & Qt.ShiftModifier
+            
             if key == Qt.Key_Left:
-                self.controller.shift_cross(dx=-1)
+                self.controller.shift_cross(dx=-0.5 if shift_pressed else -1)
             elif key == Qt.Key_Right:
-                self.controller.shift_cross(dx=1)
+                self.controller.shift_cross(dx=0.5 if shift_pressed else 1)
             elif key == Qt.Key_Up:
-                self.controller.shift_cross(dy=-1)
+                self.controller.shift_cross(dy=-0.5 if shift_pressed else -1)
             elif key == Qt.Key_Down:
-                self.controller.shift_cross(dy=1)
+                self.controller.shift_cross(dy=0.5 if shift_pressed else 1)
+            elif key == Qt.Key_R:
+                self.controller.handle_r_key()
             else:
                 super().keyPressEvent(event)
         else:

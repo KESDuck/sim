@@ -4,7 +4,7 @@ import time
 import yaml
 
 from utils.logger_config import get_logger
-from utils.tools import map_image_to_robot, save_image, draw_cross, draw_points
+from utils.tools import map_image_to_robot, save_image, draw_cross, draw_points, add_border
 from models.robot_model import RobotModel
 from models.vision_model import VisionModel
 
@@ -18,7 +18,7 @@ class CrossPositionManager:
     Manages the position of the cross overlay on camera frames.
     """
     def __init__(self, homo_matrix):
-        self.cam_xy = np.array([1, 1])
+        self.cam_xy = np.array([1.0, 1.0], dtype=np.float64)
         self.robot_xy = None
         self.homo_matrix = homo_matrix
 
@@ -29,7 +29,7 @@ class CrossPositionManager:
         
     def set_position(self, x, y):
         """Set the cross position in camera coordinates."""
-        self.cam_xy = np.array([x, y])
+        self.cam_xy = np.array([float(x), float(y)], dtype=np.float64)
         self.robot_xy = map_image_to_robot(self.cam_xy, self.homo_matrix)
         
     def get_position_info(self):
@@ -119,6 +119,9 @@ class AppController(QObject):
         # Current active tab ("Engineer" or "User")
         self.current_tab = "Engineer"
         
+        # List to store cross positions
+        self.cross_positions = []
+        
         # Emit initial status message
         self.status_message.emit("Press R Key to note current cross position")
 
@@ -142,6 +145,9 @@ class AppController(QObject):
         # Draw cross on frame before emitting
         cross_x, cross_y = self.cross_manager.cam_xy
         frame = draw_cross(frame, cross_x, cross_y)
+        
+        # Add 1px border
+        frame = add_border(frame, color=(0, 0, 0), thickness=1)
         
         # Emit the prepared frame
         self.frame_updated.emit(frame)
@@ -299,7 +305,7 @@ class AppController(QObject):
         
         # Emit status message
         x, y = self.cross_manager.cam_xy
-        log_msg = f"Cross position updated to ({x}, {y})"
+        log_msg = f"Cross position updated to ({x:.1f}, {y:.1f})"
         logger.info(log_msg)
         self.status_message.emit(log_msg)
 
@@ -372,3 +378,12 @@ class AppController(QObject):
                 # Emit a single frame for the current state
                 frame = self.get_frame_for_display(self.current_view_state)
                 self._prepare_and_emit_frame(frame) 
+
+    def handle_r_key(self):
+        """Handle R key press to record cross position"""
+        x, y = self.cross_manager.cam_xy
+        self.cross_positions.append([x, y])
+        position_number = len(self.cross_positions)
+        msg = f"#{position_number} [{x}, {y}]"
+        logger.info(msg)
+        self.status_message.emit(msg) 
