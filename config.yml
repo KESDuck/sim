@@ -10,9 +10,9 @@ homo_matrix:
   - [-0.000002186, 0.000000075, 1.000000000]
 
 capture_positions:
-  - [70, 260, 0, 90]
-  - [-60, 260, 0, 90] # calibraition point
-  - [-190, 260, 0, 90]
+  - [70, 270, 0, 90]
+  - [-60, 270, 0, 90] # calibraition point
+  - [-190, 270, 0, 90]
 
 # TODO: robot IP and port 
 

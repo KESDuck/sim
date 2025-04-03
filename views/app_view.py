@@ -63,11 +63,17 @@ class AppView(QWidget):
         x = int(scene_pos.x())
         y = int(scene_pos.y())
         
-        # Update cross position in controller
-        self.controller.set_cross_position(x, y)
+        # Update cross position in controller using shift_cross with absolute positioning
+        self.controller.shift_cross(x, y)
 
     def keyPressEvent(self, event):
         """Handle keyboard events and pass to active tab if needed"""
+        # Force exit with Ctrl+Q
+        if event.key() == Qt.Key_Q and event.modifiers() & Qt.ControlModifier:
+            logger.warning("Emergency application exit triggered with Ctrl+Q")
+            import os
+            os._exit(0)  # Force quit the application
+            
         active_tab = self.tabs.currentWidget()
         
         if self.tabs.currentIndex() == 0:  # Engineer tab
