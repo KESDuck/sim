@@ -12,6 +12,7 @@ Use RetrieveResult in setups where triggers are managed externally (e.g., hardwa
 def main():
     success_count = 0
     fail_count = 0
+    camera = None
     try:
         # Create a Pylon camera instance
         camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
@@ -24,6 +25,7 @@ def main():
 
         # Set continuous acquisition mode
         # camera.StartGrabbing(pylon.GrabStrategy_OneByOne)
+        # camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
         print("Press 'q' to quit the application.")
 
@@ -32,6 +34,7 @@ def main():
             start_time = time.time()
 
             grab_result = camera.GrabOne(4000)
+
 
             # if camera.WaitForFrameTriggerReady(200, pylon.TimeoutHandling_ThrowException):
             #     camera.ExecuteSoftwareTrigger()
@@ -76,9 +79,10 @@ def main():
         print(f"Error: {e}")
     finally:
         # Cleanup
-        camera.StopGrabbing()
-        camera.Close()
-        cv2.destroyAllWindows()
+        if camera and camera.IsOpen():
+            camera.StopGrabbing()
+            camera.Close()
+            cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     main()

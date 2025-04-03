@@ -251,6 +251,7 @@ Non-stop movement when grabbing screw from feeder
 3. Homography calibration error (~0.1mm)
     - Usually will have to manually adjust after testing
 4. Robot tool calibration error (including end effector hardware)
+5. Compliance mechanism deformed
 5. Camera resolution error
     - Choose higher resolution (~10px/mm)
 6. Screw bending

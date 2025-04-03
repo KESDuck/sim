@@ -36,10 +36,10 @@ class CrossPositionManager:
         """Get formatted position information for display."""
         cam_x, cam_y = self.cam_xy
         if self.robot_xy is None:
-            return f"Camera: ({cam_x:6.1f}, {cam_y:6.1f}), Robot: (-, -)"
+            return f"Camera: ({cam_x:.1f}, {cam_y:.1f}), Robot: (N/A)"
         else:
             robot_x, robot_y = self.robot_xy
-            return f"Camera: ({cam_x:6.1f}, {cam_y:6.1f}), Robot: ({robot_x:7.2f}, {robot_y:7.2f})"
+            return f"Camera: ({cam_x:.1f}, {cam_y:.1f}), Robot: ({robot_x:.2f}, {robot_y:.2f})"
 
 
 class CellManager:
@@ -328,31 +328,37 @@ class AppController(QObject):
         self.status_message.emit("Echo command sent")
 
     def shift_cross(self, dx=0, dy=0):
-        """Move cross in camera position."""
-        self.cross_manager.shift(dx, dy)
+        """
+        Move cross position by delta x,y or set to absolute position.
+        If both dx and dy are provided as non-zero/non-None values,
+        they are treated as absolute coordinates.
+        """
+        # Get current position
+        current_x, current_y = self.cross_manager.cam_xy
+        
+        # Determine if this is relative movement or absolute positioning
+        if dx != 0 and dy != 0:
+            # Both non-zero - treat as absolute coordinates
+            new_x, new_y = dx, dy
+        else:
+            # Treat as relative movement
+            new_x = current_x + dx
+            new_y = current_y + dy
+        
+        # Update cross position
+        self.cross_manager.set_position(new_x, new_y)
+        
+        # Get position info including robot coordinates
+        position_info = self.cross_manager.get_position_info()
+        
+        # Emit status message
+        log_msg = f"Cross position updated: {position_info}"
+        logger.info(log_msg)
+        self.status_message.emit(log_msg)
         
         # Emit an updated frame with the new cross position
         frame = self.get_frame_for_display(self.current_view_state)
         self._prepare_and_emit_frame(frame)
-        
-        # Emit status message
-        x, y = self.cross_manager.cam_xy
-        log_msg = f"Cross position updated to ({x:.1f}, {y:.1f})"
-        logger.info(log_msg)
-        self.status_message.emit(log_msg)
-
-    def set_cross_position(self, x, y):
-        """Set the cross position in camera coordinates."""
-        self.cross_manager.set_position(x, y)
-        
-        # Emit an updated frame with the new cross position
-        frame = self.get_frame_for_display(self.current_view_state)
-        self._prepare_and_emit_frame(frame)
-        
-        # Emit status message
-        log_msg = f"Cross position updated to ({x}, {y})"
-        logger.info(log_msg)
-        self.status_message.emit(log_msg)
 
     def set_cell_index(self, index):
         """Update cell index and notify view."""

@@ -70,6 +70,7 @@ class EngineerTabView(QWidget):
         self.ui_reconnect_button.clicked.connect(self.controller.reconnect_camera)
 
         # Add engineer mode widgets
+        self.button_layout.addWidget(self.ui_reconnect_button)
         self.button_layout.addWidget(self.ui_capture_button)
         self.button_layout.addWidget(self.ui_view_states)
         self.button_layout.addWidget(self.ui_save_frame_button)
@@ -77,7 +78,7 @@ class EngineerTabView(QWidget):
         self.button_layout.addWidget(self.ui_insert_single_button)
         self.button_layout.addWidget(self.ui_insert_batch_button)
         self.button_layout.addWidget(self.ui_echo_button)
-        self.button_layout.addWidget(self.ui_reconnect_button)
+        
 
         # Status bar for messages
         self.status_bar = QStatusBar()
@@ -133,5 +134,5 @@ class EngineerTabView(QWidget):
         x = int(scene_pos.x())
         y = int(scene_pos.y())
         
-        # Update cross position in controller
-        self.controller.set_cross_position(x, y) 
+        # Update cross position in controller using shift_cross with absolute positioning
+        self.controller.shift_cross(x, y) 
