@@ -250,6 +250,7 @@ Non-stop movement when grabbing screw from feeder
     - Calibrate if have time
 3. Homography calibration error (~0.1mm)
     - Usually will have to manually adjust after testing
+    - Dangled wires! Make sure to secure the wire and use high flexible ethernet cable!
 4. Robot tool calibration error (including end effector hardware)
 5. Compliance mechanism deformed
 5. Camera resolution error
