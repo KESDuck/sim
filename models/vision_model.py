@@ -1,5 +1,6 @@
 import cv2 as cv
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtCore import QObject, pyqtSignal, QThread, QMutex
+import time
 
 from utils.logger_config import get_logger
 from models.camera import CameraHandler
@@ -7,14 +8,98 @@ from utils.tools import determine_bound, sort_centroids
 
 logger = get_logger("Vision")
 
+class LiveCameraWorker(QThread):
+    """
+    Worker thread for live camera view only.
+    This avoids UI freezing during continuous camera display.
+    """
+    frame_ready = pyqtSignal(object)  # Signal to emit when a frame is captured
+    error_occurred = pyqtSignal(str)  # Signal for error reporting
+
+    def __init__(self, camera):
+        super().__init__()
+        self.camera = camera
+        self.mutex = QMutex()
+        self.stopped = False
+        self.paused = True
+        
+        # For tracking consecutive failures
+        self.consecutive_failures = 0
+        self.max_failures = 3
+        
+    def run(self):
+        """Thread main loop for live camera feed"""
+        while not self.stopped:
+            self.mutex.lock()
+            is_paused = self.paused
+            self.mutex.unlock()
+            
+            if is_paused:
+                time.sleep(0.1)  # Sleep while paused
+                continue
+                
+            try:
+                frame = self.camera.get_frame()
+                if frame is not None:
+                    self.frame_ready.emit(frame)
+                    self.consecutive_failures = 0
+                else:
+                    self.consecutive_failures += 1
+                    if self.consecutive_failures >= self.max_failures:
+                        self.error_occurred.emit("Camera not responding - try reconnecting")
+                        try:
+                            # Try to reconnect but don't crash if method doesn't exist
+                            if hasattr(self.camera, 'reconnect') and callable(self.camera.reconnect):
+                                self.camera.reconnect()
+                        except Exception as e:
+                            logger.error(f"Failed to reconnect camera: {str(e)}")
+                        self.consecutive_failures = 0
+                        time.sleep(0.5)
+            except Exception as e:
+                self.error_occurred.emit(f"Camera error: {str(e)}")
+                time.sleep(0.5)
+                
+            time.sleep(0.03)  # ~30fps with some overhead
+        
+    def pause(self):
+        """Pause the live feed"""
+        self.mutex.lock()
+        self.paused = True
+        self.mutex.unlock()
+        
+    def resume(self):
+        """Resume the live feed"""
+        self.mutex.lock()
+        self.paused = False
+        self.mutex.unlock()
+        
+    def stop(self):
+        """Stop the worker thread"""
+        self.mutex.lock()
+        self.stopped = True
+        self.mutex.unlock()
+        self.wait()
+
 class VisionModel(QObject):
     """
     Model that handles vision processing.
     Captures frames and processes them to identify centroids.
+    Live view runs in a thread, but processing is synchronous.
     """
+    # Define signals for communication with controller
+    frame_processed = pyqtSignal(bool)  # Signal to indicate processing completion
+    
     def __init__(self, cam_type):
         super().__init__()
         self.camera = CameraHandler(cam_type=cam_type, camera_matrix=None, dist_coeffs=None)
+        
+        # Setup the live camera worker thread
+        self.live_worker = LiveCameraWorker(self.camera)
+        self.live_worker.frame_ready.connect(self.handle_live_frame)
+        self.live_worker.error_occurred.connect(self.handle_error)
+        self.live_worker.start()
+        
+        # Get first frame to verify camera
         self.get_first_frame()
 
         # image frame and points
@@ -34,31 +119,54 @@ class VisionModel(QObject):
 
     def live_capture(self) -> bool:
         """
-        Get camera frame without processing
+        Start live capture mode
         """
-        self.frame_camera_live = self.camera.get_frame()  # grayscale image
-        if self.frame_camera_live is None:
-            return False
+        self.live_worker.resume()
         return True
+        
+    def stop_live_capture(self):
+        """
+        Stop live capture mode
+        """
+        self.live_worker.pause()
+
+    def handle_live_frame(self, frame):
+        """Handle frames from the worker in live mode"""
+        self.frame_camera_live = frame
 
     def capture_and_process(self) -> bool:
         """
         Capture frame and process to find centroids
+        This is a blocking call - UI will freeze during processing
         Returns True if capture and process succeed else False
         """
-        # TODO: add these to param
+        # Ensure live worker is paused to avoid camera conflicts
+        self.live_worker.pause()
+        
+        # Parameters for processing
         threshold_value = 135
         min_area = 6000  # around 80*80
         max_area = 10000  # 100 * 100
         crop_region = None
-        alpha = 0.5
-
-        self.frame_camera_stored = self.camera.get_frame()
-        if self.frame_camera_stored is None:
+        
+        # Try multiple times to get a valid frame
+        frame = None
+        for attempt in range(3):
+            frame = self.camera.get_frame()
+            if frame is not None:
+                break
+            logger.warning(f"Failed to capture frame for processing, attempt {attempt+1}/3")
+            time.sleep(0.5)
+            
+        if frame is None:
+            logger.error("Failed to capture frame for processing after multiple attempts")
+            self.frame_processed.emit(False)
             return False
 
+        self.frame_camera_stored = frame
+            
         # threshold
-        _, thres = cv.threshold(self.frame_camera_stored, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+        _, thres = cv.threshold(frame, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
 
         # contours
         contours, _ = cv.findContours(thres, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
@@ -81,35 +189,32 @@ class VisionModel(QObject):
                         filtered_contours_2.append(cnt)
                         centroids.append((cX, cY))
 
-        ##### SAVING #####
-        # All the converting and returning
+        # Prepare result frames
         self.frame_threshold = cv.cvtColor(thres, cv.COLOR_GRAY2BGR)
-
+        
         contour_overlay = self.frame_threshold.copy()
         for cnt in filtered_contours_2:  # Draw the contours
             cv.drawContours(contour_overlay, [cnt], -1, (0, 255, 0), 2)  # Green for contours
-
+            
         self.frame_contour = contour_overlay
         self.centroids = sort_centroids(centroids)
-
+        
         logger.info(f"Total centroids found: {len(self.centroids)}")
-
+        
+        # Signal processing complete
+        self.frame_processed.emit(True)
         return True
-        
-    def next_centroid(self):
-        """
-        Point to the next centroid in self.centroids
-        TODO: If finish, return none
-        """
-        if not self.centroids:
-            logger.error("No centroids found")
-            return None
-        
-        # This is now handled by controller
-        logger.info("next_centroid() should be called from controller")
-        return None
 
+    def handle_error(self, error_message):
+        """Handle errors from the live camera worker"""
+        logger.error(f"Camera worker error: {error_message}")
+        
     def close(self):
+        """Clean up resources"""
+        # Stop the worker thread
+        if hasattr(self, 'live_worker'):
+            self.live_worker.stop()
+            
         # Release the camera
         if hasattr(self.camera, 'release') and callable(self.camera.release):
             self.camera.release() 

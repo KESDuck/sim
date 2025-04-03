@@ -66,6 +66,9 @@ class EngineerTabView(QWidget):
         self.ui_echo_button = QPushButton("Echo", self)
         self.ui_echo_button.clicked.connect(self.controller.echo_test)
 
+        self.ui_reconnect_button = QPushButton("Reconnect Camera", self)
+        self.ui_reconnect_button.clicked.connect(self.controller.reconnect_camera)
+
         # Add engineer mode widgets
         self.button_layout.addWidget(self.ui_capture_button)
         self.button_layout.addWidget(self.ui_view_states)
@@ -74,12 +77,13 @@ class EngineerTabView(QWidget):
         self.button_layout.addWidget(self.ui_insert_single_button)
         self.button_layout.addWidget(self.ui_insert_batch_button)
         self.button_layout.addWidget(self.ui_echo_button)
+        self.button_layout.addWidget(self.ui_reconnect_button)
 
         # Status bar for messages
         self.status_bar = QStatusBar()
         self.layout.addWidget(self.status_bar)
     
-    def update_display(self, frame):
+    def update_display(self, frame, draw_cells=True):
         """Update the display with the provided frame."""
         if frame is None:
             return

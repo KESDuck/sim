@@ -213,6 +213,27 @@ class CameraHandler:
         if self.camera:
             self.camera.release()
             self.camera = None
+            
+    def reconnect(self):
+        """Reconnect the camera by releasing and reinitializing it."""
+        logger.info(f"Reconnecting {self.cam_type} camera...")
+        self.release()
+        # Small delay before reconnection 
+        time.sleep(1.0)
+        self._initialize_camera()
+        
+        # Check if reconnection was successful
+        if self.camera is not None:
+            test_frame = self.get_frame()
+            if test_frame is not None:
+                logger.info(f"Successfully reconnected {self.cam_type} camera")
+                return True
+            else:
+                logger.error(f"Reconnection failed: Camera did not provide a valid frame")
+        else:
+            logger.error(f"Reconnection failed: Could not create camera object")
+        
+        return False
 
 if __name__ == "__main__":
     camera = CameraHandler(cam_type="pylon")

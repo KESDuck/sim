@@ -92,7 +92,7 @@ class AppController(QObject):
         super().__init__()
         self.robot = RobotModel()
         self.vision = VisionModel(cam_type=config["cam_type"])
-
+        
         # Initialize managers
         self.cross_manager = CrossPositionManager(config["homo_matrix"])
         self.cell_manager = CellManager()
@@ -111,7 +111,7 @@ class AppController(QObject):
         self.frame_timer = QTimer(self)
         self.frame_timer.timeout.connect(self.update_frame)
         # Start timer at ~30fps (33ms interval)
-        self.frame_timer.start(100)
+        self.frame_timer.start(200)
 
         # Current view state (live/paused/etc.)
         self.current_view_state = "paused orig"
@@ -124,6 +124,31 @@ class AppController(QObject):
         
         # Emit initial status message
         self.status_message.emit("Press R Key to note current cross position")
+        
+        # Connect to vision model's signals - do this last after all methods are defined
+        self.vision.frame_processed.connect(self.on_frame_processed)
+        self.vision.live_worker.frame_ready.connect(self.on_live_frame_ready)
+        self.vision.live_worker.error_occurred.connect(self.on_camera_error)
+
+    def on_frame_processed(self, success):
+        """Handle completion of frame processing from the vision model"""
+        if success:
+            # Update centroids data
+            self._update_centroids()
+            
+            # Get the processed frame based on current view state
+            frame = self.get_frame_for_display(self.current_view_state)
+            self._prepare_and_emit_frame(frame)
+        else:
+            logger.error("Process image failure")
+            self.status_message.emit("Process image failure")
+            
+    def on_live_frame_ready(self, frame):
+        """Handle live frame updates from the vision thread"""
+        if self.current_view_state == "live" and self.current_tab == "Engineer":
+            # Store the frame and emit it
+            self.vision.frame_camera_live = frame
+            self._prepare_and_emit_frame(frame, draw_cells=False)
 
     def _prepare_and_emit_frame(self, frame, draw_cells=True):
         """Helper method to prepare a frame with overlays and emit it."""
@@ -154,17 +179,27 @@ class AppController(QObject):
 
     def set_view_state(self, state):
         """Update the current view state."""
+        previous_state = self.current_view_state
         self.current_view_state = state
         logger.info(f"View state changed to: {state}")
         
         # Adjust frame timer based on view state
         if state == "live" and self.current_tab == "Engineer":
+            # For live view, start the timer and use the background thread
             if not self.frame_timer.isActive():
-                self.frame_timer.start(100)
+                self.frame_timer.start(200)
+            self.vision.live_capture()
         else:
-            # For non-live states, stop continuous updates but emit a single frame
+            # For non-live states, stop the timer and live capture
             if self.frame_timer.isActive():
                 self.frame_timer.stop()
+            self.vision.stop_live_capture()
+            
+            # If we're switching from live to paused and we don't have a stored frame,
+            # capture one first
+            if previous_state == "live" and self.vision.frame_camera_stored is None:
+                logger.info("Capturing a frame before switching to paused state")
+                self.vision.capture_and_process()
             
             # Emit the appropriate frame for this state
             frame = self.get_frame_for_display(state)
@@ -181,23 +216,25 @@ class AppController(QObject):
         """Process frame when requested (e.g., via Process button)."""
         # Get the current state
         logger.info(f"Updating frame in state: {self.current_view_state}")
+        
         if self.current_view_state == "live":
-            # For live mode, just capture a new frame
-            if self.vision.live_capture():
-                frame = self.vision.frame_camera_live
-                self._prepare_and_emit_frame(frame, draw_cells=False)
+            # For live mode, just ensure live capture is running
+            # The frame updates will come through the signal handler
+            self.vision.live_capture()
         else:
-            # For non-live modes, process the frame
-            if self.vision.capture_and_process():
-                # Update centroids data
-                self._update_centroids()
-                
-                # Get the processed frame based on current view state
-                frame = self.get_frame_for_display(self.current_view_state)
-                self._prepare_and_emit_frame(frame)
-            else:
+            # This is a manual capture request (Process button was clicked)
+            # Make sure live capture is stopped
+            self.vision.stop_live_capture()
+            
+            # Capture and process a new frame
+            logger.info("Processing new frame on request")
+            if not self.vision.capture_and_process():
                 logger.error("Process image failure")
                 self.status_message.emit("Process image failure")
+            else:
+                # If successful, update the displayed frame
+                frame = self.get_frame_for_display(self.current_view_state)
+                self._prepare_and_emit_frame(frame)
 
     def insert_batch(self, capture_idx) -> bool:
         """
@@ -224,22 +261,17 @@ class AppController(QObject):
             idx = self.capture_position_idx
         x, y, z, u = self.capture_positions[idx]
         self.robot.jump(x, y, z, 0)
-        for attempts in range(3):
-            if self.vision.capture_and_process():
-                # Update centroids data
-                self._update_centroids()
-                break
-            logger.info("Capture failure, retrying...")
-            time.sleep(1)
-        else:
-            logger.error("All capture attempts failed")
-            self.status_message.emit("All capture attempts failed")
-            return False
-        self.robot.jump(x, y, -18., 0)
         
-        # Update the view with the new frame
-        frame = self.get_frame_for_display(self.current_view_state)
-        self._prepare_and_emit_frame(frame)
+        # Stop live capture if it's running
+        self.vision.stop_live_capture()
+        
+        # Directly capture and process - this is blocking
+        if not self.vision.capture_and_process():
+            logger.error("Capture failed")
+            self.status_message.emit("Capture failed")
+            return False
+            
+        self.robot.jump(x, y, -18., 0)
         return True
 
     def insert_all_in_view(self) -> bool:
@@ -369,15 +401,24 @@ class AppController(QObject):
         self.current_tab = tab_name
         logger.info(f"Active tab changed to: {tab_name}")
         
-        # If changing tabs, update frame timer state
+        # If changing tabs, update frame timer state and live camera state
         if self.current_view_state == "live":
-            if tab_name == "Engineer" and not self.frame_timer.isActive():
-                self.frame_timer.start(100)
-            elif tab_name != "Engineer" and self.frame_timer.isActive():
-                self.frame_timer.stop()
+            if tab_name == "Engineer":
+                if not self.frame_timer.isActive():
+                    self.frame_timer.start(200)
+                # Enable live camera in Engineer tab with live view
+                self.vision.live_capture()
+            else:
+                if self.frame_timer.isActive():
+                    self.frame_timer.stop()
+                # Disable live camera in other tabs
+                self.vision.stop_live_capture()
                 # Emit a single frame for the current state
                 frame = self.get_frame_for_display(self.current_view_state)
-                self._prepare_and_emit_frame(frame) 
+                self._prepare_and_emit_frame(frame)
+        else:
+            # For non-live states, always ensure live camera is stopped
+            self.vision.stop_live_capture()
 
     def handle_r_key(self):
         """Handle R key press to record cross position"""
@@ -386,4 +427,32 @@ class AppController(QObject):
         position_number = len(self.cross_positions)
         msg = f"#{position_number} [{x}, {y}]"
         logger.info(msg)
-        self.status_message.emit(msg) 
+        self.status_message.emit(msg)
+
+    def reconnect_camera(self):
+        """Manually reconnect the camera"""
+        self.status_message.emit("Reconnecting camera...")
+        
+        # Stop all camera operations
+        if self.frame_timer.isActive():
+            self.frame_timer.stop()
+        self.vision.stop_live_capture()
+        
+        # Perform reconnection
+        success = self.vision.camera.reconnect()
+        
+        # Resume previous state if successful
+        if success:
+            self.status_message.emit("Camera reconnected")
+            if self.current_view_state == "live":
+                self.frame_timer.start(200)
+                self.vision.live_capture()
+        else:
+            self.status_message.emit("Reconnection failed")
+            
+        return success
+
+    def on_camera_error(self, error_message):
+        """Handle camera error messages from the worker thread"""
+        logger.error(f"Camera error: {error_message}")
+        self.status_message.emit(error_message) 
