@@ -9,7 +9,7 @@ displaying images with the following key features:
 
 Key Features:
 - Mouse wheel zoom with zoom-out restriction to prevent excessive scaling.
-- Panning support via mouse drag.
+- Panning support via shift+click drag (hold shift and drag with left mouse button).
 - Dynamic minimum zoom scale based on the image and viewport size.
 
 Use `set_min_scale(scene_rect)` to initialize the minimum zoom scale.
@@ -69,13 +69,13 @@ class GraphicsView(QGraphicsView):
             super().keyPressEvent(event)  # Pass other key events to the default handler
 
     def mousePressEvent(self, event):
-        """Handle mouse click to update the cross position."""
+        """Handle mouse click to update the cross position or pan with shift+click."""
         if event.button() == Qt.LeftButton:
             # Map the mouse position to scene coordinates
             scene_pos = self.mapToScene(event.pos())
 
-            # Middle button or Alt+Left button activates panning
-            if event.modifiers() == Qt.AltModifier:
+            # Shift+Left button activates panning
+            if event.modifiers() == Qt.ShiftModifier:
                 self.setDragMode(QGraphicsView.ScrollHandDrag)
                 self.panning = True
                 # Call super after setting drag mode
@@ -89,7 +89,7 @@ class GraphicsView(QGraphicsView):
             super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
-        """Reset drag mode after panning."""
+        """Reset drag mode after panning with shift+click."""
         if self.panning and event.button() == Qt.LeftButton:
             self.panning = False
             self.setDragMode(QGraphicsView.NoDrag)
