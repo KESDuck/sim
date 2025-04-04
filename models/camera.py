@@ -18,6 +18,45 @@ logger = get_logger("Camera")
 with open('config.yml', 'r') as file:
     config = yaml.safe_load(file)
 
+# Pylon camera event handlers
+class PylonImageHandler(pylon.ImageEventHandler):
+    """
+    Event handler for Pylon camera image events.
+    Processes images as they are captured by the camera.
+    """
+    def __init__(self):
+        super().__init__()
+        self.last_image = None
+        self.image_ready = False
+        self.success_count = 0
+        self.fail_count = 0
+        self.last_timestamp = time.time()
+        
+    def OnImageGrabbed(self, camera, grabResult):
+        """Called when an image is grabbed from the camera."""
+        if grabResult.GrabSucceeded():
+            # Store the image array
+            self.last_image = grabResult.Array
+            self.image_ready = True
+            self.success_count += 1
+            
+            # Log performance statistics
+            current_time = time.time()
+            elapsed = current_time - self.last_timestamp
+            self.last_timestamp = current_time
+            
+            # logger.debug(f"Frame grabbed: {elapsed:.3f}s, Success rate: {self.success_count/(self.success_count+self.fail_count):.1%}")
+        else:
+            self.fail_count += 1
+            # logger.debug(f"Grab failed: {grabResult.ErrorDescription}")
+            
+    def get_last_image(self):
+        """Returns the last successfully grabbed image and resets the ready flag."""
+        if self.image_ready:
+            self.image_ready = False
+            return self.last_image
+        return None
+
 # Abstract Base Class
 class CameraBase(ABC):
     """
@@ -75,15 +114,17 @@ class USBCamera(CameraBase):
 # Pylon Camera Class
 class PylonCamera(CameraBase):
     """
-    Handles Pylon camera operations, including frame capture and preprocessing.
+    Handles Pylon camera operations using an event-driven approach.
+    Images are automatically processed by ImageHandler when they arrive from the camera.
     """
     def __init__(self):
         super().__init__()
         self.camera = None
+        self.image_handler = None
         self.consecutive_failures = 0
         self.max_frame_failures = 5
         self.is_reconnecting = False
-        self.grab_timeout_ms = 5000  # Increase timeout to 5 seconds
+        self.grab_timeout_ms = 500
         self.reconnect()
 
     def reconnect(self, max_attempts=2):
@@ -119,30 +160,36 @@ class PylonCamera(CameraBase):
                     if len(devices) == 0:
                         logger.error("No Pylon cameras found")
                         attempt += 1
-                        time.sleep(1)  # Longer delay
+                        time.sleep(1)
                         continue
                     
                     # Create and open camera with the first device
                     self.camera = pylon.InstantCamera(tl_factory.CreateDevice(devices[0]))
                     self.camera.Open()
+                    
+                    # Configure format converter
+                    self.converter = pylon.ImageFormatConverter()
+                    self.converter.OutputPixelFormat = pylon.PixelType_RGB8packed
+                    self.converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
 
-                    # Don't try to set advanced parameters that might fail
+                    # Create and register image handler
+                    self.image_handler = PylonImageHandler()
+                    self.camera.RegisterImageEventHandler(self.image_handler, 
+                                                 pylon.RegistrationMode_Append,
+                                                 pylon.Cleanup_Delete)
+
+                    # Device info
                     model_name = self.camera.GetDeviceInfo().GetModelName()
                     camera_ip = self.camera.GetDeviceInfo().GetIpAddress()
                     logger.info(f"##### Pylon camera connected: {model_name} ({camera_ip}) #####")
                     
-                    # Start grabbing after configuration
+                    # Start grabbing with latest image only strategy
                     self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
                     self.consecutive_failures = 0
                     
-                    # Try a simple test frame capture
-                    test_frame = self._grab_frame()
-                    if test_frame is not None:
-                        success = True
-                        break
-                    else:
-                        logger.warning("Camera connected but test frame capture failed")
-                        attempt += 1
+                    # Start the acquisition loop in continuous mode
+                    success = True
+                    break
                     
                 except Exception as e:
                     logger.error(f"Error connecting to Pylon camera: {e}")
@@ -163,46 +210,46 @@ class PylonCamera(CameraBase):
                 
         return success
         
-    def _grab_frame(self):
-        """Internal grab frame method with error handling"""
-        if not self.camera or not self.camera.IsOpen() or not self.camera.IsGrabbing():
-            return None
-            
-        try:
-            grab_result = self.camera.RetrieveResult(self.grab_timeout_ms, pylon.TimeoutHandling_ThrowException)
-            if grab_result and grab_result.GrabSucceeded():
-                frame = grab_result.Array
-                grab_result.Release()
-                return frame
-            else:
-                if grab_result:
-                    error_desc = grab_result.ErrorDescription
-                    grab_result.Release()
-                    logger.debug(f"Frame grab failed: {error_desc}")
-                return None
-        except pylon.TimeoutException:
-            logger.debug("Frame grab timeout")
-            return None
-        except Exception as e:
-            logger.warning(f"Error in grab frame: {e}")
-            return None
-
     def get_frame(self):
-        """Capture a single frame from the Pylon camera."""
-        if not self.camera or not self.camera.IsGrabbing():
-            # Camera not initialized or not grabbing - don't auto-reconnect
+        """
+        Get the latest frame from the image handler.
+        If no new frame is available, trigger the retrieval of a new one.
+        Returns a grayscale frame for consistency with the rest of the application.
+        """
+        if not self.camera or not self.camera.IsGrabbing() or not self.image_handler:
             logger.error("Camera is not initialized or not grabbing")
             return None
             
-        frame = self._grab_frame()
+        # Try to get the last image from the handler
+        frame = self.image_handler.get_last_image()
         
+        # If no frame is available, manually trigger a retrieval
+        if frame is None:
+            try:
+                # Get a new grab result (this will call OnImageGrabbed in the handler)
+                grabResult = self.camera.RetrieveResult(self.grab_timeout_ms, pylon.TimeoutHandling_Return)
+                if grabResult and grabResult.IsValid():
+                    grabResult.Release()  # Release the result as it's handled by the event handler
+                    # Try to get the image again after the event handler has processed it
+                    frame = self.image_handler.get_last_image()
+                else:
+                    if grabResult:
+                        grabResult.Release()
+            except Exception as e:
+                logger.warning(f"Error retrieving frame: {e}")
+        
+        # Process the frame if available
         if frame is not None:
             self.consecutive_failures = 0
+            
+            # Convert to grayscale if the frame is color
+            if len(frame.shape) == 3 and frame.shape[2] == 3:
+                frame = cv.cvtColor(frame, cv.COLOR_RGB2GRAY)
+                
             return frame
         else:
             self.consecutive_failures += 1
             
-            # Just log the error, don't auto-reconnect
             if self.consecutive_failures >= self.max_frame_failures:
                 logger.warning(f"Failed to grab {self.consecutive_failures} frames")
                 self.consecutive_failures = 0
@@ -220,6 +267,7 @@ class PylonCamera(CameraBase):
             except Exception as e:
                 logger.error(f"Error releasing Pylon camera: {e}")
         self.camera = None
+        self.image_handler = None
 
 class FileMockInterface:
     def __init__(self, path):
