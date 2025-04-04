@@ -210,12 +210,12 @@ class AppController(QObject):
         max_value = self.cell_manager.update_cells(self.vision.centroids)
         self.cell_index_changed.emit(-1)
         self.cell_max_changed.emit(max_value)
-        logger.info(f"Updated centroids, found {max_value + 1}")
+        # logger.info(f"Updated centroids, found {max_value + 1}")
 
     def update_frame(self):
         """Process frame when requested (e.g., via Process button)."""
         # Get the current state
-        logger.info(f"Updating frame in state: {self.current_view_state}")
+        # logger.info(f"Updating frame in state: {self.current_view_state}")
         
         if self.current_view_state == "live":
             # For live mode, just ensure live capture is running
@@ -227,7 +227,7 @@ class AppController(QObject):
             self.vision.stop_live_capture()
             
             # Capture and process a new frame
-            logger.info("Processing new frame on request")
+            # logger.info("Processing new frame on request")
             if not self.vision.capture_and_process():
                 logger.error("Process image failure")
                 self.status_message.emit("Process image failure")
