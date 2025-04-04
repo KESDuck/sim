@@ -20,11 +20,8 @@ class EngineerTabView(QWidget):
         self.controller = controller
         self.setup_ui()
         
-        # Set initial view state (controller already defaults to "paused orig")
-        self.ui_view_states.setCurrentIndex(1)  # "paused orig" is index 1
-        
-        # Initialize with proper state
-        self.view_state_changed(self.ui_view_states.currentText())
+        # # Initialize with proper state
+        # self.view_state_changed(self.ui_view_states.currentText())
         
     def setup_ui(self):
         """Initialize the engineer tab interface."""
@@ -46,6 +43,7 @@ class EngineerTabView(QWidget):
         self.ui_view_states = QComboBox()
         self.ui_view_states.addItems(["live", "paused orig", "paused thres", "paused contours"])
         self.ui_view_states.currentTextChanged.connect(self.view_state_changed)
+        self.ui_view_states.setCurrentIndex(1)  # "paused orig" is index 1
 
         ##### Control buttons ####
         self.ui_capture_button = QPushButton("Process", self)

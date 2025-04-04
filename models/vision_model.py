@@ -87,17 +87,17 @@ class VisionModel(QObject):
     
     def __init__(self, cam_type):
         super().__init__()
-        self.camera = CameraHandler(cam_type=cam_type, camera_matrix=None, dist_coeffs=None)
-        
+        self.camera = CameraHandler(cam_type=cam_type)
+        if self.camera.initialize_camera():
+            # Get first frame to verify camera
+            self.get_first_frame()
+
         # Setup the live camera worker thread
         self.live_worker = LiveCameraWorker(self.camera)
         self.live_worker.frame_ready.connect(self.handle_live_frame)
         self.live_worker.error_occurred.connect(self.handle_error)
         self.live_worker.start()
         
-        # Get first frame to verify camera
-        self.get_first_frame()
-
         # image frame and points
         self.frame_camera_live = None  # right after undistort
         self.frame_camera_stored = None
@@ -147,15 +147,10 @@ class VisionModel(QObject):
         
         # Try multiple times to get a valid frame
         frame = None
-        for attempt in range(3):
-            frame = self.camera.get_frame()
-            if frame is not None:
-                break
-            logger.warning(f"Failed to capture frame for processing, attempt {attempt+1}/3")
-            time.sleep(0.5)
-            
+        frame = self.camera.get_frame()
+
         if frame is None:
-            logger.error("Failed to capture frame for processing after multiple attempts")
+            logger.error("Failed to capture frame for processing")
             self.frame_processed.emit(False)
             return False
 
