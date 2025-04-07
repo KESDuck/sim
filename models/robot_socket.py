@@ -1,6 +1,8 @@
 from PyQt5.QtNetwork import QTcpSocket
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 from utils.logger_config import get_logger
+from collections import deque
+from typing import Optional, Callable, Dict, List
 
 # Configure the logger
 logger = get_logger("Socket")
@@ -9,6 +11,7 @@ class RobotSocket(QObject):
     connected = pyqtSignal()          # Emitted when connected
     response_received = pyqtSignal(str)  # Emitted when a response is received
     connection_error = pyqtSignal(str)   # Emitted on connection error
+    command_completed = pyqtSignal(bool)  # Emitted when command completes (success/failure)
 
     def __init__(self, ip, port, timeout=5.0):
         super().__init__()
@@ -18,119 +21,140 @@ class RobotSocket(QObject):
         self.socket = QTcpSocket()
         self.reconnect_timer = QTimer()
         self.reconnect_timer.timeout.connect(self.try_connect)
+        
+        # Command queue and state
+        self.command_queue = deque()
+        self.current_command: Optional[str] = None
+        self.is_processing = False
+        
+        # Response callbacks
+        self._response_callbacks: Dict[str, List[Callable]] = {"*": []}
 
         # Connect socket signals
-        self.socket.connected.connect(self.on_connected)
-        self.socket.readyRead.connect(self.on_ready_read) # message come in, readyRead is emitted, and triggers on_ready_read
-        self.socket.errorOccurred.connect(self.on_error)
+        self.socket.connected.connect(self._on_connected)
+        self.socket.readyRead.connect(self._on_ready_read)
+        self.socket.errorOccurred.connect(self._on_error)
 
-    def connect(self):
+    def connect_to_server(self):
         """Connect to the robot server."""
         logger.info(f"Connecting to {self.ip}:{self.port}...")
         self.try_connect()
-        # Check if connection was successful
-        return self.socket.state() == QTcpSocket.ConnectedState
+        # The on_connected signal will be emitted when connection is established
+        return True
 
     def try_connect(self):
         if self.socket.state() != QTcpSocket.ConnectedState:
             self.socket.abort()
             self.socket.connectToHost(self.ip, self.port)
 
-    def on_connected(self):
+    def _on_connected(self):
         """Handle successful connection."""
         logger.info("Connected to the server.")
         self.connected.emit()
         if self.reconnect_timer.isActive():
             self.reconnect_timer.stop()
+        # Process any queued commands
+        self._process_next_command()
 
-    def send_command(self, command, timeout_ack=None, timeout_task=None):
-        """Send a command and wait for acknowledgment and task completion.
-           Timeout in ms(0.001s)"""
+    def send_command(self, command, timeout_task=None):
+        """Queue a command for sending."""
         if self.socket.state() != QTcpSocket.ConnectedState:
             logger.warning("Socket is not connected.")
             return False
 
-        # Default timeouts
-        if timeout_ack is None:
-            timeout_ack = int(self.timeout * 200)  # 20% of timeout
-        if timeout_task is None:
-            timeout_task = int(self.timeout * 1000)  # Full timeout
+        # Add command to queue
+        self.command_queue.append((command, timeout_task))
+        logger.info(f"Command queued: {command}")
+        
+        # Start processing if not already
+        if not self.is_processing:
+            self._process_next_command()
+        return True
 
+    def _process_next_command(self):
+        """Process the next command in the queue."""
+        if not self.command_queue or self.is_processing:
+            return
+
+        self.is_processing = True
+        command, timeout_task = self.command_queue.popleft()
+        self.current_command = command
+        
         try:
             logger.info(f"Sending: {command}")
             self.socket.write((command + "\r\n").encode())
             self.socket.flush()
-
-            if not self._wait_for_message("ack", timeout_ack):
-                logger.warning("Error: No 'ack' received.")
-                return False
-
-            if not self._wait_for_message("taskdone", timeout_task):
-                logger.warning("Error: No 'taskdone' received.")
-                return False
-
-            return True
-
+            
+            # Set up response handling
+            def on_response(response):
+                if response == "taskdone":
+                    self._command_completed(True, on_response)
+                elif response == "taskfailed":
+                    self._command_completed(False, on_response)
+                elif response == "stopped":
+                    logger.info("Task was stopped by stop command")
+                    self._command_completed(False, on_response)
+            
+            self._response_callbacks["*"].append(on_response)
+            
+            # Set up timeout for task completion
+            QTimer.singleShot(timeout_task or int(self.timeout * 1000), 
+                            lambda: self._check_task_timeout(command, on_response))
+            
         except Exception as e:
             logger.error(f"Error sending command '{command}': {e}")
-            return False
+            self._command_completed(False, on_response)
+
+    def _check_task_timeout(self, command, callback):
+        """Handle task completion timeout."""
+        if self.current_command == command:
+            logger.warning(f"Task completion timeout for command: {command}")
+            # Remove callback before completing
+            if callback in self._response_callbacks["*"]:
+                self._response_callbacks["*"].remove(callback)
+            self._command_completed(False, callback)
+
+    def _command_completed(self, success, callback):
+        """Handle command completion."""
+        if callback in self._response_callbacks["*"]:
+            self._response_callbacks["*"].remove(callback)
+        self.is_processing = False
+        self.current_command = None
+        self.command_completed.emit(success)
+        # Process next command if any
+        self._process_next_command()
+
+    def clear_queue(self):
+        """Clear the command queue without affecting the current running command."""
+        count = len(self.command_queue)
+        self.command_queue.clear()
+        logger.info(f"Cleared {count} commands from the queue")
+        return count
 
     def close(self):
         """Close the connection."""
         if self.socket.state() == QTcpSocket.ConnectedState:
             logger.info("Closing connection...")
             self.socket.disconnectFromHost()
+            self.command_queue.clear()
+            self.is_processing = False
+            self.current_command = None
 
-    def _wait_for_message(self, expected_message, timeout=5000):
-        """Wait for a specific message from the robot with a timeout."""
-        from PyQt5.QtCore import QEventLoop, QTimer
-
-        # logger.debug(f"Waiting for message: {expected_message} (Timeout: {timeout}ms)")
-
-        loop = QEventLoop()
-        timer = QTimer()
-        timer.setSingleShot(True)
-
-        message_received = False  # Track if we got the expected message
-
-        def on_timer_timeout():
-            logger.debug(f"Timeout waiting for: {expected_message}")
-            loop.quit()
-
-        def on_message_received(message):
-            nonlocal message_received
-            if message == expected_message:
-                # logger.debug(f"Received expected message: {message}")
-                message_received = True  # Mark as received
-                timer.stop()
-                loop.quit()
-
-        timer.timeout.connect(on_timer_timeout)
-        self.response_received.connect(on_message_received)
-
-        timer.start(timeout)
-        loop.exec()
-
-        # Disconnect signals
-        self.response_received.disconnect(on_message_received)
-        timer.timeout.disconnect(on_timer_timeout)
-
-        return message_received  # Return True if received, False if timed out
-
-    def on_ready_read(self):
+    def _on_ready_read(self):
         """Handle incoming data from the robot."""
         while self.socket.canReadLine():
             response = self.socket.readLine().data().decode().strip()
             logger.info(f"Received: {response}")
             self.response_received.emit(response)
+            
+            # Call all registered callbacks
+            for callback in self._response_callbacks["*"]:
+                callback(response)
 
-    def on_error(self):
+    def _on_error(self):
         """Handle connection errors."""
         error_message = self.socket.errorString()
-        logger.error(f"Socket not connected") # {error_message}
+        logger.error(f"Socket error: {error_message}")
         if not self.reconnect_timer.isActive():
-            self.reconnect_timer.start(5000) # retry every 5 seconds
-
-    def send_and_wait(self, command):
-        """Send a command and wait for acknowledgment and task completion."""
-        return self.send_command(command)
+            self.reconnect_timer.start(5000)  # retry every 5 seconds
+        self._command_completed(False)  # Fail current command if any
