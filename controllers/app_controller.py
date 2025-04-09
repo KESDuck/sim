@@ -87,11 +87,17 @@ class AppController(QObject):
     cell_max_changed = pyqtSignal(int)
     frame_updated = pyqtSignal(object)  # Signal to send frames to the view
     status_message = pyqtSignal(str)    # Signal for status messages
+    robot_status_message = pyqtSignal(str)  # Signal for robot status messages
 
     def __init__(self):
         super().__init__()
-        self.robot = RobotModel()
+        self.robot = RobotModel(ip="192.168.0.1", port=8501)
         self.vision = VisionModel(cam_type=config["cam_type"])
+        
+        # Connect robot signals
+        self.robot.connected.connect(self._on_robot_connected)
+        self.robot.connection_error.connect(self._on_robot_error)
+        self.robot.robot_status.connect(self._on_robot_status)
         
         # Initialize managers
         self.cross_manager = CrossPositionManager(config["homo_matrix"])
@@ -129,6 +135,23 @@ class AppController(QObject):
         self.vision.frame_processed.connect(self.on_frame_processed)
         self.vision.live_worker.frame_ready.connect(self.on_live_frame_ready)
         self.vision.live_worker.error_occurred.connect(self.on_camera_error)
+
+    def _on_robot_connected(self):
+        """Handle successful robot connection."""
+        logger.info("Robot connected successfully")
+        self.status_message.emit("Robot connected")
+        
+    def _on_robot_error(self, error_msg):
+        """Handle robot connection error."""
+        logger.error(f"Robot connection error: {error_msg}")
+        self.status_message.emit(f"Robot connection error: {error_msg}")
+        
+        # Try to reconnect after a delay
+        QTimer.singleShot(5000, self.robot.connect_to_server)
+
+    def _on_robot_status(self, status_message):
+        """Handle robot status messages."""
+        self.robot_status_message.emit(status_message)
 
     def on_frame_processed(self, success):
         """Handle completion of frame processing from the vision model"""
@@ -323,9 +346,9 @@ class AppController(QObject):
         else:
             logger.warning("No frame stored to save.")
 
-    def echo_test(self):
-        self.robot.echo()
-        self.status_message.emit("Echo command sent")
+    def where_test(self):
+        self.robot.where()
+        self.status_message.emit("Getting robot position")
 
     def shift_cross(self, dx=0, dy=0):
         """
