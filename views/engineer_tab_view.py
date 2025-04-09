@@ -61,8 +61,8 @@ class EngineerTabView(QWidget):
         self.ui_insert_batch_button = QPushButton("Insert Batch", self)
         self.ui_insert_batch_button.clicked.connect(self.toggle_batch_insert)
 
-        self.ui_echo_button = QPushButton("Echo", self)
-        self.ui_echo_button.clicked.connect(self.controller.echo_test)
+        self.ui_where_button = QPushButton("Where", self)
+        self.ui_where_button.clicked.connect(self.controller.where_test)
 
         self.ui_reconnect_button = QPushButton("Reconnect Camera", self)
         self.ui_reconnect_button.clicked.connect(self.controller.reconnect_camera)
@@ -75,12 +75,22 @@ class EngineerTabView(QWidget):
         self.button_layout.addWidget(self.ui_move_to_capture)
         self.button_layout.addWidget(self.ui_insert_single_button)
         self.button_layout.addWidget(self.ui_insert_batch_button)
-        self.button_layout.addWidget(self.ui_echo_button)
+        self.button_layout.addWidget(self.ui_where_button)
         
+        # Status bar layout
+        self.status_layout = QHBoxLayout()
+        self.layout.addLayout(self.status_layout)
 
-        # Status bar for messages
+        # Status bar for application messages
         self.status_bar = QStatusBar()
-        self.layout.addWidget(self.status_bar)
+        self.status_layout.addWidget(self.status_bar)
+        
+        # Status bar for robot messages
+        self.robot_status_bar = QStatusBar()
+        self.status_layout.addWidget(self.robot_status_bar)
+        
+        # Connect to controller's robot status signal
+        self.controller.robot_status_message.connect(self.update_robot_status)
     
     def update_display(self, frame, draw_cells=True):
         """Update the display with the provided frame."""
@@ -111,6 +121,10 @@ class EngineerTabView(QWidget):
     def update_status(self, message):
         """Update the status bar with a message."""
         self.status_bar.showMessage(message)
+        
+    def update_robot_status(self, message):
+        """Update the robot status bar with a message."""
+        self.robot_status_bar.showMessage(message)
     
     def toggle_batch_insert(self):
         """Toggle batch insertion mode"""

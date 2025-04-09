@@ -37,15 +37,33 @@ class RobotSocket(QObject):
 
     def connect_to_server(self):
         """Connect to the robot server."""
-        logger.info(f"Connecting to {self.ip}:{self.port}...")
-        self.try_connect()
-        # The on_connected signal will be emitted when connection is established
-        return True
+        try:
+            # Abort any existing connection
+            self.socket.abort()
+            
+            # Connect and wait for connection
+            self.socket.connectToHost(self.ip, self.port)
+            
+            # Wait for connection with timeout
+            if not self.socket.waitForConnected(int(self.timeout * 1000)):
+                error_msg = self.socket.errorString()
+                logger.error(f"Connection timeout: {error_msg}")
+                self.connection_error.emit(error_msg)
+                return False
+                
+            return True
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Connection error: {error_msg}")
+            self.connection_error.emit(error_msg)
+            return False
 
     def try_connect(self):
+        """Attempt to reconnect to the server."""
         if self.socket.state() != QTcpSocket.ConnectedState:
-            self.socket.abort()
-            self.socket.connectToHost(self.ip, self.port)
+            logger.info("Attempting to reconnect...")
+            self.connect_to_server()
 
     def _on_connected(self):
         """Handle successful connection."""
@@ -157,4 +175,10 @@ class RobotSocket(QObject):
         logger.error(f"Socket error: {error_message}")
         if not self.reconnect_timer.isActive():
             self.reconnect_timer.start(5000)  # retry every 5 seconds
-        self._command_completed(False)  # Fail current command if any
+        
+        # Fail current command if any, but don't pass a callback
+        self.is_processing = False
+        self.current_command = None
+        self.command_completed.emit(False)
+        # Process next command if any
+        self._process_next_command()
