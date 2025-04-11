@@ -129,27 +129,43 @@ update_frame:
 ```
 
 ## Messaging Protocol
-### Robot Messaging Protocol (100 screws)
-First connect timeout 60s  
-Will try to connect every 5s if not connected  
 
-Python - Nonblocking messaging setup using qtimer. (Because using QTimer is generally the best practice over QApplication.processEvents() in most scenarios. )
-- Send msg "insert X Y Z U" with ack msg "ack"  
+### States
+- State 0: Idle
+- State 1: Imaging
+- State 2: Inserting
 
-Robot:  
-- Received msg and send "ack"  
-- Perform task based on the command, first word decide which function to perform  
-- If task completed successfully, send msg "taskdone"  
+### Robot Status Updates
+- Robot sends status every 1 second: `status {state #}, {x}, {y}, {z}, {u}, {index}, {queue size}`
+- App synchronizes with robot state every second
+- App displays error if its state differs from robot state
 
-Python:  
-- wait for confirm msg "taskdone"  
-- Start next cycle 
+### Commands
+1. **Capture**: `capture x, y, z, u`
+   - Changes app state 0 → 1 (only allowed if current state is 0)
+   - Expects: `task position_reached` (Timeout: 10s)
 
-### Dual Process Robot Protocol (1000 screws)
-Robot code will create 2 tasks, one for receiving and storing the cell positions, the other will be controlling the robot for inserting.
+2. **Queue**: `queue x1,y1,z1,u1,...,xN,yN,zN,uN`
+   - Changes app state 0 → 2
+   - Expects: `task queue_set` (Timeout: 3s)
+   - Expects: `task queue_completed` (Timeout: 300s)
 
-### All region cell Protocol (1000 screws)
-Will get all the cell coordinates of a insertion region and start insert.
+3. **Stop**: `stop`
+   - Changes app state 2 → 0
+   - Expects: `task queue_stopped` (Timeout: 1s)
+   - Unexpects: `task queue_completed`
+
+### Error Handling
+- If command times out:
+  - Position-reached timeout: App state → 0
+  - Queue-set or queue-completed timeout: App state → 0
+- If error response is received (`error` or `taskfailed`): Logged but no state change
+
+### Protocol Notes
+- App state changes immediately after command is sent, preventing multiple commands
+- Status check runs every 1 second to verify state synchronization
+- Commands end with `\r\n` over TCPIP
+- Socket connection maintained throughout operation
 
 ## Homography Calibration
 Teach robot tooling (in Robot Manager) 
