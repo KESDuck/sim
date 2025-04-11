@@ -97,6 +97,14 @@ class RobotSocket(QObject):
             logger.error(f"Error sending command: {e}")
             return False
 
+    def close(self):
+        """Close the connection."""
+        self.timeout_timer.stop()
+        if self.socket.state() == QTcpSocket.ConnectedState:
+            logger.info("Closing connection...")
+            self.socket.disconnectFromHost()
+        self.pending_expectations.clear()
+
     def _add_expectation(self, command: str, expected_response: str, timeout: float) -> None:
         """Add a command expectation to track."""
         expectation = CommandExpectation(
@@ -106,7 +114,7 @@ class RobotSocket(QObject):
             start_time=time()
         )
         self.pending_expectations.append(expectation)
-        logger.debug(f"Added expectation: {command} → {expected_response} (timeout: {timeout}s)")
+        logger.debug(f"Added expectation: {expected_response} (timeout: {timeout}s)")
 
     def _remove_expectation(self, expected_response: str) -> None:
         """Remove all expectations with the given expected response."""
@@ -118,14 +126,6 @@ class RobotSocket(QObject):
         removed = before_count - len(self.pending_expectations)
         if removed > 0:
             logger.debug(f"Removed {removed} expectations for response: {expected_response}")
-
-    def get_pending_expectations(self) -> List[Tuple[str, str, float]]:
-        """Get list of pending expectations (command, response, seconds remaining)."""
-        current_time = time()
-        return [
-            (exp.command, exp.expected_response, exp.timeout - (current_time - exp.start_time))
-            for exp in self.pending_expectations
-        ]
 
     def _check_timeouts(self):
         """Check for timed out expectations"""
@@ -143,14 +143,15 @@ class RobotSocket(QObject):
         """Handle incoming data from the robot."""
         while self.socket.canReadLine():
             response = self.socket.readLine().data().decode().strip()
-            logger.info(f"Received: {response}")
-            
-            self.response_received.emit(response)
-            
+
+            # logger.info(f"Received: {response}")
+
             # Handle task completion responses
             if response in ["task position_reached", "task queue_set", "task queue_completed", "task queue_stopped"]:
                 self._remove_expectation(response)
                 # TODO: expectation for status update
+
+            self.response_received.emit(response)
 
     def _on_connected(self):
         """Handle successful connection."""
@@ -163,10 +164,3 @@ class RobotSocket(QObject):
         logger.error(f"Socket error: {error_message}")
         self.connection_error.emit(error_message)
 
-    def close(self):
-        """Close the connection."""
-        self.timeout_timer.stop()
-        if self.socket.state() == QTcpSocket.ConnectedState:
-            logger.info("Closing connection...")
-            self.socket.disconnectFromHost()
-        self.pending_expectations.clear()

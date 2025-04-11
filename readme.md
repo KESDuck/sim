@@ -167,6 +167,10 @@ update_frame:
 - Commands end with `\r\n` over TCPIP
 - Socket connection maintained throughout operation
 
+### Future Tasks
+- Set expectation for second status update
+- Status update include timestamp
+
 ## Homography Calibration
 Teach robot tooling (in Robot Manager) 
 1. setup hardware:

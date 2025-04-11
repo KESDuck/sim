@@ -116,7 +116,6 @@ class AppController(QObject):
         # QTimer to update frames
         self.frame_timer = QTimer(self)
         self.frame_timer.timeout.connect(self.update_frame)
-        # Start timer at ~30fps (33ms interval)
         self.frame_timer.start(200)
 
         # Current view state (live/paused/etc.)
