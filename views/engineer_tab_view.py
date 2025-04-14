@@ -46,26 +46,27 @@ class EngineerTabView(QWidget):
         self.ui_view_states.setCurrentIndex(1)  # "paused orig" is index 1
 
         ##### Control buttons ####
-        self.ui_capture_button = QPushButton("Process", self)
+
+        self.ui_reconnect_button = QPushButton("Reconnect Camera", self)
+        self.ui_reconnect_button.clicked.connect(self.controller.reconnect_camera)
+
+        self.ui_capture_button = QPushButton("Process Image", self)
         self.ui_capture_button.clicked.connect(self.controller.update_frame)
 
         self.ui_save_frame_button = QPushButton("Save Frame", self)
         self.ui_save_frame_button.clicked.connect(self.controller.save_current_frame)
         
-        self.ui_move_to_capture = QPushButton("Go Capture", self)
-        self.ui_move_to_capture.clicked.connect(self.controller.position_and_capture)
+        self.ui_move_to_capture = QPushButton("Capture 1 Only", self)
+        self.ui_move_to_capture.clicked.connect(lambda: self.controller.process_section(1, capture_only=True))
 
-        self.ui_insert_single_button = QPushButton("Insert Single", self)
-        self.ui_insert_single_button.clicked.connect(lambda: self.controller.cell_action(action="insert"))
+        self.ui_move_to_capture_tmp = QPushButton("Capture 2 Only", self)
+        self.ui_move_to_capture_tmp.clicked.connect(lambda: self.controller.process_section(2, capture_only=True))
 
-        self.ui_insert_batch_button = QPushButton("Insert Batch", self)
-        self.ui_insert_batch_button.clicked.connect(self.toggle_batch_insert)
+        self.ui_process_section = QPushButton("Process Section 1", self)
+        self.ui_process_section.clicked.connect(lambda: self.controller.process_section(1))
 
         self.ui_where_button = QPushButton("Where", self)
-        self.ui_where_button.clicked.connect(self.controller.where_test)
-
-        self.ui_reconnect_button = QPushButton("Reconnect Camera", self)
-        self.ui_reconnect_button.clicked.connect(self.controller.reconnect_camera)
+        # TODO
 
         # Add engineer mode widgets
         self.button_layout.addWidget(self.ui_reconnect_button)
@@ -73,8 +74,8 @@ class EngineerTabView(QWidget):
         self.button_layout.addWidget(self.ui_view_states)
         self.button_layout.addWidget(self.ui_save_frame_button)
         self.button_layout.addWidget(self.ui_move_to_capture)
-        self.button_layout.addWidget(self.ui_insert_single_button)
-        self.button_layout.addWidget(self.ui_insert_batch_button)
+        self.button_layout.addWidget(self.ui_move_to_capture_tmp)
+        self.button_layout.addWidget(self.ui_process_section)
         self.button_layout.addWidget(self.ui_where_button)
         
         # Status bar layout
@@ -125,12 +126,6 @@ class EngineerTabView(QWidget):
     def update_robot_status(self, message):
         """Update the robot status bar with a message."""
         self.robot_status_bar.showMessage(message)
-    
-    def toggle_batch_insert(self):
-        """Toggle batch insertion mode"""
-        self.controller.toggle_pause_insert()
-        button_text = "Resume Batch" if self.controller.pause_insert else "Pause Batch"
-        self.ui_insert_batch_button.setText(button_text)
     
     def view_state_changed(self, state):
         """Handle view state change from UI"""

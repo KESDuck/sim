@@ -35,12 +35,17 @@ class RobotModel(QObject):
         0: "IDLE",
         1: "IMAGING",
         2: "INSERTING",
-        # TODO: add disconnect state
+        # TODO: add disconnect state, and init with it
     }
+
+    robot_connected = pyqtSignal()          # Emitted when connected
+    robot_connection_error = pyqtSignal(str)
+    robot_status = pyqtSignal(str)
     
     def __init__(self, ip, port, timeout=5.0):
         super().__init__()
         # Initialize state
+        # TODO: should start with disconnect state
         self.app_state = self.IDLE
         self.robot_state = self.IDLE
         self.is_connected = False
@@ -59,6 +64,7 @@ class RobotModel(QObject):
         self.socket = RobotSocket(ip, port, timeout)
         
         # Connect socket signals
+        self.socket.connected.connect(self._on_connected)
         self.socket.response_received.connect(self._on_response_received)
         self.socket.connection_error.connect(self._on_connection_error)
         self.socket.command_timeout.connect(self._on_command_timeout)
@@ -81,11 +87,15 @@ class RobotModel(QObject):
             self.is_connected = False
             return False
     
+    def _on_connected(self):
+        self.robot_connected.emit()
+
     def _on_connection_error(self, error_msg):
         """Handle connection error."""
         logger.error(f"Connection error: {error_msg}")
         self.is_connected = False
         self.status_timer.stop()
+        self.robot_connection_error.emit(error_msg)
     
     def _check_mismatch(self):
         """Check for state mismatch when received status update"""
@@ -129,8 +139,9 @@ class RobotModel(QObject):
                     self.robot_queue_index = int(parts[5].strip())
                     self.robot_queue_size = int(parts[6].strip())
                     
-                    timestamp = time.strftime("%H:%M:%S.") + str(int(time.time()*10) % 10)
-                    print(' ' * 100 + f'{timestamp} robot state: {self.STATE_NAMES[self.robot_state]}, {self.where()}')
+                    # timestamp = time.strftime("%H:%M:%S.") + str(int(time.time()*10) % 10)
+                    # print(' ' * 100 + f'{timestamp} robot state: {self.STATE_NAMES[self.robot_state]}, {self.where()}')
+                    self.robot_status.emit(f'robot state: {self.STATE_NAMES[self.robot_state]}, {self.where()}')
                 except (ValueError, IndexError) as e:
                     logger.error(f"Error parsing status response: {e}")
             else:
@@ -166,10 +177,11 @@ class RobotModel(QObject):
             old_state = self.STATE_NAMES[self.app_state]
             new_state = self.STATE_NAMES[state]
             # Only log state changes at debug level (remove INFO-level logging)
-            logger.debug(f"App state changed from {old_state} to {new_state}")
+            # logger.debug(f"App state changed from {old_state} to {new_state}")
             self.app_state = state
         else:
-            logger.debug(f"App state not changed: {self.STATE_NAMES[self.app_state]}")
+            # logger.debug(f"App state not changed: {self.STATE_NAMES[self.app_state]}")
+            pass
     
     def capture(self, x, y, z, u):
         """

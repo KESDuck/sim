@@ -271,12 +271,13 @@ Non-stop movement when grabbing screw from feeder
 3. Homography calibration error (~0.1mm)
     - Usually will have to manually adjust after testing
     - Dangled wires! Make sure to secure the wire and use high flexible ethernet cable!
+    - Deformed camera mount caused by camera heating (e=1.5mm)
 4. Robot tool calibration error (including end effector hardware)
 5. Compliance mechanism deformed
 5. Camera resolution error
     - Choose higher resolution (~10px/mm)
-6. Screw bending
-    - Grab at lower end
+6. Tooling error
+    - Screw not straight - grab at lower end
 7. Plate shifted after capture image
 
 # Tasks

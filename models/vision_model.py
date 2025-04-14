@@ -48,6 +48,7 @@ class LiveCameraWorker(QThread):
                     if self.consecutive_failures >= self.max_failures:
                         # Just report the error, don't try to reconnect automatically
                         self.error_occurred.emit("Camera not responding - use reconnect button if needed")
+                        
                         self.consecutive_failures = 0
                         # Add delay to prevent too many error messages
                         time.sleep(1.0)
@@ -141,8 +142,8 @@ class VisionModel(QObject):
         
         # Parameters for processing
         threshold_value = 135
-        min_area = 6000  # around 80*80
-        max_area = 10000  # 100 * 100
+        min_area = 2700  # 52x52
+        max_area = 5625  # 75x75
         crop_region = None
         
         # Try multiple times to get a valid frame

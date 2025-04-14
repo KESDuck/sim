@@ -153,7 +153,16 @@ class PylonCamera(CameraBase):
                 # Create and open camera with the first device
                 self.camera = pylon.InstantCamera(tl_factory.CreateDevice(devices[0]))
                 self.camera.Open()
-                
+                # Go here for available camera features: https://docs.baslerweb.com/features
+
+                # Load default settings
+                self.camera.UserSetSelector.Value = "Default"
+                self.camera.UserSetLoad.Execute()
+
+                # setting exposure, read from pylon viewer
+                self.camera.ExposureTimeAbs.Value = 116000 # 116000
+                # self._print_camera_attributes()
+
                 # Configure format converter
                 self.converter = pylon.ImageFormatConverter()
                 self.converter.OutputPixelFormat = pylon.PixelType_RGB8packed
@@ -185,7 +194,32 @@ class PylonCamera(CameraBase):
 
         self.is_reconnecting = False
         return success
-        
+
+    def _print_camera_attributes(self):
+        """Print all available attributes of the camera"""
+        if self.camera and self.camera.IsOpen():
+            try:
+                # Get all attributes
+                attributes = dir(self.camera)
+                
+                # Filter out private attributes (starting with _)
+                public_attrs = [attr for attr in attributes if not attr.startswith('_')]
+                
+                # Print each attribute
+                logger.info("Available camera attributes:")
+                for attr in sorted(public_attrs):
+                    try:
+                        # Try to get the value if it's a property
+                        value = getattr(self.camera, attr)
+                        logger.info(f"{attr}: {value}")
+                    except:
+                        # If we can't get the value, just print the name
+                        logger.info(f"{attr}")
+                        
+            except Exception as e:
+                logger.error(f"Error printing camera attributes: {e}")
+
+
     def get_frame(self):
         """
         Get the latest frame from the image handler.
@@ -212,6 +246,8 @@ class PylonCamera(CameraBase):
             else:
                 if grabResult:
                     grabResult.Release()
+                    # TODO: not validated
+                    print(f"Error: {grabResult.GetErrorDescription()} (Code: {grabResult.GetErrorCode()})")
         except Exception as e:
             logger.warning(f"Error retrieving frame: {e}")
         

@@ -91,7 +91,6 @@ class RobotSocket(QObject):
             else:
                 logger.warning(f"Unknown command: {command}")
                 return False
-                
             return True
         except Exception as e:
             logger.error(f"Error sending command: {e}")

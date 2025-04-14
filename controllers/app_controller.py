@@ -91,12 +91,12 @@ class AppController(QObject):
 
     def __init__(self):
         super().__init__()
-        self.robot = RobotModel(ip="192.168.0.1", port=8501)
+        self.robot = RobotModel(ip=config["robot"]["ip"], port=config["robot"]["port"])
         self.vision = VisionModel(cam_type=config["cam_type"])
         
         # Connect robot signals
-        self.robot.connected.connect(self._on_robot_connected)
-        self.robot.connection_error.connect(self._on_robot_error)
+        self.robot.robot_connected.connect(self._on_robot_connected)
+        self.robot.robot_connection_error.connect(self._on_robot_error)
         self.robot.robot_status.connect(self._on_robot_status)
         
         # Initialize managers
@@ -143,10 +143,7 @@ class AppController(QObject):
     def _on_robot_error(self, error_msg):
         """Handle robot connection error."""
         logger.error(f"Robot connection error: {error_msg}")
-        self.status_message.emit(f"Robot connection error: {error_msg}")
-        
-        # Try to reconnect after a delay
-        QTimer.singleShot(5000, self.robot.connect_to_server)
+        self.status_message.emit(f"Robot connection error: {error_msg}, try reconnect button")
 
     def _on_robot_status(self, status_message):
         """Handle robot status messages."""
@@ -258,85 +255,112 @@ class AppController(QObject):
                 frame = self.get_frame_for_display(self.current_view_state)
                 self._prepare_and_emit_frame(frame)
 
-    def insert_batch(self, capture_idx) -> bool:
-        """
-        Insert batch for the given insertion region. 2 steps:
-        1. position_and_capture
-        2. insert_all_in_view
-        """
-        if not self.position_and_capture(capture_idx):
-            logger.error(f"Capture failed at index {capture_idx}")
-            return False
+    # def insert_batch(self, capture_idx) -> bool:
+    #     """ TO REMOVE
+    #     Insert batch for the given insertion region. 2 steps:
+    #     1. position_and_capture
+    #     2. insert_all_in_view
+    #     """
+    #     if not self.position_and_capture(capture_idx):
+    #         logger.error(f"Capture failed at index {capture_idx}")
+    #         return False
         
-        if not self.insert_all_in_view():
-            logger.error("Insertion failed.")
-            return False
+    #     if not self.insert_all_in_view():
+    #         logger.error("Insertion failed.")
+    #         return False
         
-        logger.info(f"Insertion region {capture_idx} completed successfully.")
-        return True
+    #     logger.info(f"Insertion region {capture_idx} completed successfully.")
+    #     return True
 
-    def position_and_capture(self, idx=None) -> bool:
-        """
-        Move robot to capture position, then capture and process a frame
-        """
-        if idx is None:
-            idx = self.capture_position_idx
-        x, y, z, u = self.capture_positions[idx]
-        self.robot.jump(x, y, z, 0)
+    # def position_and_capture(self, idx=None) -> bool:
+    #     """ TO REMOVE
+    #     Move robot to capture position, then capture and process a frame
+    #     """
+    #     if idx is None:
+    #         idx = self.capture_position_idx
+    #     x, y, z, u = self.capture_positions[idx]
+    #     self.robot.jump(x, y, z, 0)
         
-        # Stop live capture if it's running
+    #     # Stop live capture if it's running
+    #     self.vision.stop_live_capture()
+        
+    #     # Directly capture and process - this is blocking
+    #     if not self.vision.capture_and_process():
+    #         logger.error("Capture failed")
+    #         self.status_message.emit("Capture failed")
+    #         return False
+            
+    #     self.robot.jump(x, y, -18., 0)
+    #     return True
+
+    # def insert_all_in_view(self) -> bool:
+    #     """ TO REMOVE
+    #     Insert begin from cell_index, can be paused and resumed
+    #     TODO: Stop if error such as socket not connected, if "ack" or "taskdone" not received after timeout
+    #     """
+    #     while self.cell_manager.current_index < len(self.cell_manager.cells_xy) - 1:
+    #         if self.pause_insert:
+    #             break
+    #         self.set_cell_index(self.cell_manager.current_index + 1)
+    #         if not self.cell_action("insert"):
+    #             # TODO: pause the UI here not just insertion toggle_pause_insert
+    #             logger.error("Something is wrong, please check.")
+    #             return False
+    #     return True
+
+    def process_section(self, section_id, capture_only=False) -> bool:
+        """
+            capture and process a section
+            - I. move robot (and conveyor) to section_id
+            - II. capture and process image
+            - III. queue positions to robot 
+            - IV. robot start inserting
+        """
+
+        if not self.robot.is_connected:
+            logger.error(f"Robot is not connected")
+            return False
+        
+        if self.robot.robot_state != RobotModel.IDLE:
+            logger.error(f"Robot not in IDLE state")
+            return False
+        
+        ##### I #####
+        # Get capture position for this section
+        x, y, z, u = self.capture_positions[section_id]
+        
+        # Move robot to capture position
+        if not self.robot.capture(x, y, z, u):
+            logger.error(f"Failed to send robot to capture position")
+            return False
+        
+        # Wait until robot is at capture position
+        while self.robot.robot_state != RobotModel.IDLE:
+            time.sleep(0.1)
+        
+        ##### II #####
+        # Stop live capture if running
         self.vision.stop_live_capture()
         
-        # Directly capture and process - this is blocking
+        time.sleep(0.5)
+        
+        # Capture and process frame
         if not self.vision.capture_and_process():
-            logger.error("Capture failed")
-            self.status_message.emit("Capture failed")
+            logger.error(f"Failed to capture section {section_id}")
             return False
-            
-        self.robot.jump(x, y, -18., 0)
+
+        if capture_only:
+            return True
+        
+        ##### III, IV #####
+        # TODO
+        
         return True
 
-    def insert_all_in_view(self) -> bool:
-        """
-        Insert begin from cell_index, can be paused and resumed
-        TODO: Stop if error such as socket not connected, if "ack" or "taskdone" not received after timeout
-        """
-        while self.cell_manager.current_index < len(self.cell_manager.cells_xy) - 1:
-            if self.pause_insert:
-                break
-            self.set_cell_index(self.cell_manager.current_index + 1)
-            if not self.cell_action("insert"):
-                # TODO: pause the UI here not just insertion toggle_pause_insert
-                logger.error("Something is wrong, please check.")
-                return False
-        return True
-
-    def cell_action(self, action="insert") -> bool:
-        current_cell = self.cell_manager.get_current_cell()
-        if current_cell is None:
-            msg = "Bad cell index"
-            logger.warning(msg)
-            self.status_message.emit(msg)
-            return False
-        
-        cX, cY = current_cell
-        rX, rY = map_image_to_robot((cX, cY), self.homo_matrix)
-
-        if action == "insert":
-            success = self.robot.insert(rX, rY, config['robot']['z_insert'], 0)
-            action_msg = "Insert"
-        elif action == "jump":
-            success = self.robot.jump(rX, rY, config['robot']['z_insert'], 0)
-            action_msg = "Jump"
-        else:
-            raise ValueError("Bad action")
-
-        if not success:
-            self.status_message.emit(f"{action_msg} failed at cell {self.cell_manager.current_index}")
-            return False
-        
-        self.status_message.emit(f"{action_msg} successful at cell {self.cell_manager.current_index}")
-        return success
+    
+    def stop_insert(self):
+        """Connect stop button with robot stop"""
+        pass
 
     def save_current_frame(self):
         if self.vision.frame_camera_stored is not None and self.vision.frame_camera_stored.size > 0:
@@ -344,10 +368,6 @@ class AppController(QObject):
             self.status_message.emit("Frame saved")
         else:
             logger.warning("No frame stored to save.")
-
-    def where_test(self):
-        self.robot.where()
-        self.status_message.emit("Getting robot position")
 
     def shift_cross(self, dx=0, dy=0):
         """
@@ -391,16 +411,6 @@ class AppController(QObject):
         if self.current_view_state != "live" and self.cell_manager.cells_xy is not None:
             frame = self.get_frame_for_display(self.current_view_state)
             self._prepare_and_emit_frame(frame)
-
-    def toggle_pause_insert(self):
-        self.pause_insert = not self.pause_insert
-        if self.pause_insert:
-            msg = f"Insertion paused at {self.cell_manager.current_index}"
-        else:
-            msg = f"Insertion resumed at {self.cell_manager.current_index}"
-        
-        logger.info(msg)
-        self.status_message.emit(msg)
 
     def get_frame_for_display(self, view_state):
         """Get appropriate frame based on view state."""
