@@ -89,7 +89,7 @@ class RobotSocket(QObject):
                 # Status commands don't have expectations
                 pass
             else:
-                logger.warning(f"Unknown command: {command}")
+                logger.error(f"Unknown command: {command}")
                 return False
             return True
         except Exception as e:

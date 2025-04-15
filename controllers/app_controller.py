@@ -41,40 +41,104 @@ class CrossPositionManager:
             robot_x, robot_y = self.robot_xy
             return f"Camera: ({cam_x:.1f}, {cam_y:.1f}), Robot: ({robot_x:.2f}, {robot_y:.2f})"
 
+class CentroidManager:
+    """
+    Manages centroid processing operations: sorting, filtering, and converting.
+    """
+    def __init__(self, homo_matrix):
+        self.homo_matrix = homo_matrix
+        self.raw_centroids = None  # used by _prepare_and_emit_frame
+        self.processed_centroids = None  # used by _update_centroids
+        self.last_processed_time = None  # Timestamp when processing last completed
 
-class CellManager:
-    """
-    Manages cell selection and indexing.
-    """
-    def __init__(self):
-        self.cells_xy = None
-        self.current_index = -1
+    def process_centroids(self, centroids):
+        """
+        Process centroids for robot use: 
+        1. Sort centroids
+        2. Convert to robot coordinates if needed
+        3. Filter
         
-    def update_cells(self, cells_xy):
-        """Update the list of cell coordinates."""
-        self.cells_xy = cells_xy
-        self.current_index = -1
-        return len(self.cells_xy) - 1 if self.cells_xy else 0
-        
-    def set_index(self, index):
-        """Set the current cell index."""
-        if self.cells_xy is None:
-            self.current_index = -1
-            return
-        
-        # Ensure index is within valid range
-        if index < -1:
-            index = -1
-        elif index >= len(self.cells_xy):
-            index = len(self.cells_xy) - 1
+        Args:
+            centroids (list): List of (x, y) coordinates
             
-        self.current_index = index
+        Returns:
+            list: Processed centroids ready for robot use
+        """
+        # Store the raw centroids
+        self.raw_centroids = centroids
         
-    def get_current_cell(self):
-        """Get coordinates of the current cell."""
-        if self.current_index < 0 or self.cells_xy is None or self.current_index >= len(self.cells_xy):
-            return None
-        return self.cells_xy[self.current_index]
+        if centroids is None or len(centroids) == 0:
+            self.processed_centroids = []
+            return []
+            
+        # Sort centroids
+        sorted_centroids = self.sort_centroids(centroids)
+        
+        # Convert to robot coordinates if needed
+        robot_centroids = self.convert_to_robot_coords(sorted_centroids)
+        
+        # Store processed centroids
+        self.processed_centroids = robot_centroids
+        
+        # Store timestamp when processing completed
+        self.last_processed_time = time.time()
+        
+        return robot_centroids
+
+    def is_centroid_updated_recently(self):
+        """Check if centroid processing was done recently."""
+        if self.last_processed_time is None:
+            return False
+        return time.time() - self.last_processed_time < 1.0  # 1 second threshold
+
+    def sort_centroids(self, centroids, x_tolerance=30):
+        """
+        Sort centroids such that they are grouped by similar x-coordinates,
+        and within each group sorted by y-coordinates.
+
+        Args:
+            centroids (list): List of (x, y) centroid coordinates
+            x_tolerance (int, optional): Maximum difference in x-coordinates for grouping
+
+        Returns:
+            list: A flat list of centroids, sorted by grouped x and then y
+        """
+        if len(centroids) == 0:
+            return []
+            
+        # Step 1: Sort by x-coordinates first
+        sorted_centroids = sorted(centroids, key=lambda c: c[0])
+
+        # Step 2: Group centroids into clusters based on x_tolerance
+        groups = []
+        current_group = [sorted_centroids[0]]
+
+        for i in range(1, len(sorted_centroids)):
+            if abs(sorted_centroids[i][0] - current_group[-1][0]) <= x_tolerance:
+                current_group.append(sorted_centroids[i])
+            else:
+                groups.append(sorted(current_group, key=lambda c: c[1]))  # Sort group by y
+                current_group = [sorted_centroids[i]]
+
+        groups.append(sorted(current_group, key=lambda c: c[1]))  # Sort last group
+
+        # Step 3: Flatten list
+        return [c for group in groups for c in group]
+    
+    def convert_to_robot_coords(self, centroids):
+        """
+        Convert camera coordinates to robot coordinates using homography matrix.
+        
+        Args:
+            centroids (list): List of (x, y) camera coordinates
+            
+        Returns:
+            list: List of (x, y) robot coordinates
+        """
+        if not centroids:
+            return []
+            
+        return [map_image_to_robot(point, self.homo_matrix) for point in centroids]
 
 
 class AppController(QObject):
@@ -100,9 +164,10 @@ class AppController(QObject):
         self.robot.robot_status.connect(self._on_robot_status)
         
         # Initialize managers
-        self.cross_manager = CrossPositionManager(config["homo_matrix"])
-        self.cell_manager = CellManager()
-
+        self.homo_matrix = config["homo_matrix"]
+        self.cross_manager = CrossPositionManager(self.homo_matrix)
+        self.centroid_manager = CentroidManager(self.homo_matrix)
+        
         # keep track if it is batch inserting 
         self.pause_insert = False
 
@@ -111,12 +176,11 @@ class AppController(QObject):
         self.conveyor_position_idx = 0
 
         self.capture_positions = config["capture_positions"]
-        self.homo_matrix = config["homo_matrix"]
 
         # QTimer to update frames
-        self.frame_timer = QTimer(self)
-        self.frame_timer.timeout.connect(self.update_frame)
-        self.frame_timer.start(200)
+        self.update_frame_timer = QTimer(self)
+        self.update_frame_timer.timeout.connect(self.update_frame)
+        self.update_frame_timer.start(200)
 
         # Current view state (live/paused/etc.)
         self.current_view_state = "paused orig"
@@ -177,12 +241,12 @@ class AppController(QObject):
         # Make a copy to avoid modifying the original
         frame = frame.copy()
         
-        # Add overlay with cell points if available and requested
-        if draw_cells and self.current_view_state != "live" and self.cell_manager.cells_xy is not None:
+        # Add overlay with centroids if available and requested
+        if draw_cells and self.current_view_state != "live" and self.centroid_manager.raw_centroids is not None:
             frame = draw_points(
                 frame, 
-                self.cell_manager.cells_xy, 
-                self.cell_manager.current_index, 
+                self.centroid_manager.raw_centroids, 
+                -1,  # No current index 
                 size=10
             )
         
@@ -205,13 +269,13 @@ class AppController(QObject):
         # Adjust frame timer based on view state
         if state == "live" and self.current_tab == "Engineer":
             # For live view, start the timer and use the background thread
-            if not self.frame_timer.isActive():
-                self.frame_timer.start(200)
+            if not self.update_frame_timer.isActive():
+                self.update_frame_timer.start(200)
             self.vision.live_capture()
         else:
             # For non-live states, stop the timer and live capture
-            if self.frame_timer.isActive():
-                self.frame_timer.stop()
+            if self.update_frame_timer.isActive():
+                self.update_frame_timer.stop()
             self.vision.stop_live_capture()
             
             # If we're switching from live to paused and we don't have a stored frame,
@@ -226,11 +290,10 @@ class AppController(QObject):
 
     def _update_centroids(self):
         """Helper method to update centroids data from the vision model."""
-        max_value = self.cell_manager.update_cells(self.vision.centroids)
-        self.cell_index_changed.emit(-1)
-        self.cell_max_changed.emit(max_value)
-        # logger.info(f"Updated centroids, found {max_value + 1}")
-
+        # Get centroids from vision and store them in centroid manager
+        _centroids = self.centroid_manager.process_centroids(self.vision.centroids)
+        self.cell_max_changed.emit(len(_centroids) - 1 if len(_centroids) > 0 else 0)
+        
     def update_frame(self):
         """Process frame when requested (e.g., via Process button)."""
         # Get the current state
@@ -247,66 +310,10 @@ class AppController(QObject):
             
             # Capture and process a new frame
             # logger.info("Processing new frame on request")
-            if not self.vision.capture_and_process():
-                logger.error("Process image failure")
-                self.status_message.emit("Process image failure")
-            else:
+            if self.vision.capture_and_process():
                 # If successful, update the displayed frame
                 frame = self.get_frame_for_display(self.current_view_state)
                 self._prepare_and_emit_frame(frame)
-
-    # def insert_batch(self, capture_idx) -> bool:
-    #     """ TO REMOVE
-    #     Insert batch for the given insertion region. 2 steps:
-    #     1. position_and_capture
-    #     2. insert_all_in_view
-    #     """
-    #     if not self.position_and_capture(capture_idx):
-    #         logger.error(f"Capture failed at index {capture_idx}")
-    #         return False
-        
-    #     if not self.insert_all_in_view():
-    #         logger.error("Insertion failed.")
-    #         return False
-        
-    #     logger.info(f"Insertion region {capture_idx} completed successfully.")
-    #     return True
-
-    # def position_and_capture(self, idx=None) -> bool:
-    #     """ TO REMOVE
-    #     Move robot to capture position, then capture and process a frame
-    #     """
-    #     if idx is None:
-    #         idx = self.capture_position_idx
-    #     x, y, z, u = self.capture_positions[idx]
-    #     self.robot.jump(x, y, z, 0)
-        
-    #     # Stop live capture if it's running
-    #     self.vision.stop_live_capture()
-        
-    #     # Directly capture and process - this is blocking
-    #     if not self.vision.capture_and_process():
-    #         logger.error("Capture failed")
-    #         self.status_message.emit("Capture failed")
-    #         return False
-            
-    #     self.robot.jump(x, y, -18., 0)
-    #     return True
-
-    # def insert_all_in_view(self) -> bool:
-    #     """ TO REMOVE
-    #     Insert begin from cell_index, can be paused and resumed
-    #     TODO: Stop if error such as socket not connected, if "ack" or "taskdone" not received after timeout
-    #     """
-    #     while self.cell_manager.current_index < len(self.cell_manager.cells_xy) - 1:
-    #         if self.pause_insert:
-    #             break
-    #         self.set_cell_index(self.cell_manager.current_index + 1)
-    #         if not self.cell_action("insert"):
-    #             # TODO: pause the UI here not just insertion toggle_pause_insert
-    #             logger.error("Something is wrong, please check.")
-    #             return False
-    #     return True
 
     def process_section(self, section_id, capture_only=False) -> bool:
         """
@@ -335,26 +342,46 @@ class AppController(QObject):
             return False
         
         # Wait until robot is at capture position
-        while self.robot.robot_state != RobotModel.IDLE:
+        while self.robot.app_state != RobotModel.IDLE:
             time.sleep(0.1)
         
         ##### II #####
         # Stop live capture if running
         self.vision.stop_live_capture()
         
+        # Longer pause to make sure robot is not shaking
         time.sleep(0.5)
         
-        # Capture and process frame
-        if not self.vision.capture_and_process():
+        # Capture and process frame, with 3 retries
+        # Vision model will emit frame_processed signal that will update centroids
+        # update centroids will sort, filter, and convert centroids to robot coordinates
+        for i in range(3):
+            if self.vision.capture_and_process():
+                break
+            else:
+                logger.error(f"Failed to capture, retrying...")
+                time.sleep(0.5)
+        else:
             logger.error(f"Failed to capture section {section_id}")
+            return False
+
+        # sanity check that centroid is updated recently
+        if not self.centroid_manager.is_centroid_updated_recently():
+            logger.error(f"Centroid not updated recently")
             return False
 
         if capture_only:
             return True
         
         ##### III, IV #####
-        # TODO
-        
+
+        # Pause to make sure state is IDLE
+        time.sleep(1.0)
+
+        # Send queue, robot state will be in INSERTING unless stopped or queue finished
+        if not self.robot.queue_points(self.centroid_manager.processed_centroids):
+            return False
+
         return True
 
     
@@ -401,17 +428,7 @@ class AppController(QObject):
         # Emit an updated frame with the new cross position
         frame = self.get_frame_for_display(self.current_view_state)
         self._prepare_and_emit_frame(frame)
-
-    def set_cell_index(self, index):
-        """Update cell index and notify view."""
-        self.cell_manager.set_index(index)
-        self.cell_index_changed.emit(self.cell_manager.current_index)
         
-        # Update the display with the new cell selection
-        if self.current_view_state != "live" and self.cell_manager.cells_xy is not None:
-            frame = self.get_frame_for_display(self.current_view_state)
-            self._prepare_and_emit_frame(frame)
-
     def get_frame_for_display(self, view_state):
         """Get appropriate frame based on view state."""
         if view_state == "live":
@@ -442,13 +459,13 @@ class AppController(QObject):
         # If changing tabs, update frame timer state and live camera state
         if self.current_view_state == "live":
             if tab_name == "Engineer":
-                if not self.frame_timer.isActive():
-                    self.frame_timer.start(200)
+                if not self.update_frame_timer.isActive():
+                    self.update_frame_timer.start(200)
                 # Enable live camera in Engineer tab with live view
                 self.vision.live_capture()
             else:
-                if self.frame_timer.isActive():
-                    self.frame_timer.stop()
+                if self.update_frame_timer.isActive():
+                    self.update_frame_timer.stop()
                 # Disable live camera in other tabs
                 self.vision.stop_live_capture()
                 # Emit a single frame for the current state
@@ -472,8 +489,8 @@ class AppController(QObject):
         self.status_message.emit("Reconnecting camera...")
         
         # Stop all camera operations
-        if self.frame_timer.isActive():
-            self.frame_timer.stop()
+        if self.update_frame_timer.isActive():
+            self.update_frame_timer.stop()
         self.vision.stop_live_capture()
         
         # Perform reconnection
@@ -483,7 +500,7 @@ class AppController(QObject):
         if success:
             self.status_message.emit("Camera reconnected")
             if self.current_view_state == "live":
-                self.frame_timer.start(200)
+                self.update_frame_timer.start(200)
                 self.vision.live_capture()
         else:
             self.status_message.emit("Reconnection failed")

@@ -4,7 +4,7 @@ import time
 
 from utils.logger_config import get_logger
 from models.camera import CameraHandler
-from utils.tools import determine_bound, sort_centroids
+from utils.tools import determine_bound
 
 logger = get_logger("Vision")
 
@@ -189,7 +189,9 @@ class VisionModel(QObject):
             cv.drawContours(contour_overlay, [cnt], -1, (0, 255, 0), 2)  # Green for contours
             
         self.frame_contour = contour_overlay
-        self.centroids = sort_centroids(centroids)
+        
+        # Save centroids to instance variable
+        self.centroids = centroids
         
         logger.info(f"Total centroids found: {len(self.centroids)}")
         

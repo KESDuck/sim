@@ -40,9 +40,20 @@ def draw_cross(image, x, y, color=(0, 255, 0), size=30):
     
     return image
 
-def draw_points(image, points, current_index, size=5):
-
-    if points == None:
+def draw_points(image, points, current_index=None, size=5):
+    """
+    Draw circles at the specified points on the image.
+    
+    Args:
+        image: Image to draw on
+        points: List of (x,y) coordinates
+        current_index: Not used anymore, kept for backward compatibility
+        size: Size of circles to draw
+        
+    Returns:
+        Image with circles drawn
+    """
+    if points is None:
         return image
     
     # Check if the image is grayscale
@@ -62,7 +73,16 @@ def draw_points(image, points, current_index, size=5):
     return image
 
 def map_image_to_robot(image_point, homo_matrix):
-    """Maps a 2D image point to robot coordinates using a homography matrix."""
+    """
+    Map a 2D point from camera image coordinates to robot workspace coordinates.
+    
+    Args:
+        image_point (array-like): A 2D point [x, y] in image pixel coordinates
+        homo_matrix (ndarray): 3x3 homography transformation matrix from calibration
+        
+    Returns:
+        ndarray: A 2D point [x, y] in robot workspace coordinates (mm)
+    """
     point_homogeneous = np.array([image_point[0], image_point[1], 1.0])
     world_point_homogeneous = np.dot(homo_matrix, point_homogeneous)
     world_point = world_point_homogeneous / world_point_homogeneous[2]
@@ -77,70 +97,6 @@ def determine_bound(point, crop_region):
         return True
 
     return False
-
-def sort_centroids(centroids, x_tolerance=30):
-    """
-    Sort centroids such that they are grouped by similar x-coordinates,
-    and within each group sorted by y-coordinates.
-
-    Args:
-        centroids (list of tuple): List of (x, y) centroid coordinates.
-        x_tolerance (int): Maximum difference in x-coordinates for grouping.
-
-    Returns:
-        list: A flat list of centroids, sorted by grouped x and then y.
-
-    TODO: understand this...
-    """
-    if len(centroids) == 0:
-        return []
-    # Step 1: Sort by x-coordinates first
-    centroids.sort(key=lambda c: c[0])  
-
-    # Step 2: Group centroids into clusters based on x_tolerance
-    groups = []
-    current_group = [centroids[0]]
-
-    for i in range(1, len(centroids)):
-        if abs(centroids[i][0] - current_group[-1][0]) <= x_tolerance:
-            current_group.append(centroids[i])
-        else:
-            groups.append(sorted(current_group, key=lambda c: c[1]))  # Sort group by y
-            current_group = [centroids[i]]
-
-    groups.append(sorted(current_group, key=lambda c: c[1]))  # Sort last group
-
-    # Step 3: Flatten list
-    return [c for group in groups for c in group]
-
-
-def add_spinning_indicator(spin_angle, frame):
-    """
-    Adds a spinning indicator to the top-right corner of the frame.
-    TODO[c]: test this
-    """
-    height, width, _ = frame.shape
-    center = (width - 30, 30)  # Top-right corner
-    radius = 20
-    thickness = 2
-
-    # Increment the spinning angle
-    spin_angle = (spin_angle + 10) % 360
-
-    # Draw the spinning arc
-    start_angle = spin_angle
-    end_angle = (spin_angle + 60) % 360  # 60-degree arc
-
-    # Handle cases where the end_angle wraps around 360
-    if end_angle < start_angle:
-        # Draw two arcs to handle wrapping
-        cv.ellipse(frame, center, (radius, radius), 0, start_angle, 360, (255, 0, 0), thickness)
-        cv.ellipse(frame, center, (radius, radius), 0, 0, end_angle, (255, 0, 0), thickness)
-    else:
-        # Draw a single arc
-        cv.ellipse(frame, center, (radius, radius), 0, start_angle, end_angle, (255, 0, 0), thickness)
-
-    return frame
 
 def add_border(image, color=(0, 0, 0), thickness=1):
     """

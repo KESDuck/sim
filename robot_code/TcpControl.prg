@@ -8,7 +8,7 @@ Global Real MoveX, MoveY, MoveZ, MoveU, JumpZ
 ' State machine variables
 Global Integer RobotState  ' 0=IDLE, 1=IMAGING, 2=INSERTING, 3=STOPPING, 4=EMERGENCY_STOP
 Global String RobotCommand$
-Global String CoordinateQueue$(100, 4)  ' Store up to 100 coordinates (X,Y,Z,U)
+Global String CoordinateQueue$(100, 2)  ' Store up to 100 coordinates (X,Y,Z,U)
 Global Integer QueueSize, CurrentIndex
 
 ' Message handling variables
@@ -79,18 +79,17 @@ Function ProcessReceivedMessage
                     EndIf
                 
                 Case "queue"
-                    ' Format: queue x1 y1 z1 u1 x2 y2 z2 u2 ... xN yN zN uN
-                    If RobotState = 0 And (NumTokens - 1) Mod 4 = 0 Then
+                    ' Format: queue x1 y1 x2 y2 ... xN yN
+                    If RobotState = 0 And (NumTokens - 1) Mod 2 = 0 Then
                         RobotState = 2  ' INSERTING
 
-                        QueueSize = (NumTokens - 1) / 4
+                        QueueSize = (NumTokens - 1) / 2
                         If QueueSize > 100 Then QueueSize = 100
                         Integer i
                         For i = 0 To QueueSize - 1
-                            CoordinateQueue$(i, 0) = Tokens$(i * 4 + 1)  ' X
-                            CoordinateQueue$(i, 1) = Tokens$(i * 4 + 2)  ' Y
-                            CoordinateQueue$(i, 2) = Tokens$(i * 4 + 3)  ' Z
-                            CoordinateQueue$(i, 3) = Tokens$(i * 4 + 4)  ' U
+                            CoordinateQueue$(i, 0) = Tokens$(i * 2 + 1)  ' X
+                            CoordinateQueue$(i, 1) = Tokens$(i * 2 + 2)  ' Y
+
                         Next i
                         
                         CurrentIndex = 0
@@ -222,25 +221,12 @@ Function ProcessQueueItem
         ' Extract coordinate from queue
         MoveX = Val(CoordinateQueue$(CurrentIndex, 0))
         MoveY = Val(CoordinateQueue$(CurrentIndex, 1))
-        MoveZ = Val(CoordinateQueue$(CurrentIndex, 2))
-        MoveU = Val(CoordinateQueue$(CurrentIndex, 3))
         
-        Print "[ProcessQueueItem] Processing item ", CurrentIndex + 1, "/", QueueSize, ": (", MoveX, ", ", MoveY, ", ", MoveZ, ", ", MoveU, ")"
+        Print "[ProcessQueueItem] Processing item ", CurrentIndex + 1, "/", QueueSize, ": (", MoveX, ", ", MoveY, ")"
         
         ' Do insertion
-        Jump pFeederReceive -Y(12) LimZ -18
-        Go pFeederReceive
-        On ioGripper
-        Go pFeederReceive -Y(12)
-        On ioFeeder
-        Wait 0.1
-        Off ioFeeder
-        Jump XY(MoveX, MoveY, -150, 0) /L LimZ -18
-        Off ioGripper
-        Wait 0.2
-        Go XY(MoveX, MoveY, -150, 0) /L -Y(40)
-        
-        Wait 0.1
+        ' InsertCell(MoveX, MoveY)
+        Wait 0.5
         
         ' Increment index
         CurrentIndex = CurrentIndex + 1
@@ -255,4 +241,18 @@ ErrorHandler:
     ' Safe recovery actions
     Off ioGripper  ' Release gripper
     Motor Off      ' Safety stop
+Fend
+
+Function InsertCell(ByVal cellX As Real, ByVal cellY As Real)
+    Jump pFeederReceive -Y(12) LimZ -18
+    Go pFeederReceive
+    On ioGripper
+    Go pFeederReceive -Y(12)
+    On ioFeeder
+    Wait 0.1
+    Off ioFeeder
+    Jump XY(MoveX, MoveY, -150, 0) /L LimZ -18
+    Off ioGripper
+    Wait 0.2
+    Go XY(MoveX, MoveY, -150, 0) /L -Y(40)
 Fend

@@ -104,6 +104,6 @@ class AppView(QWidget):
     def on_tab_changed(self, index):
         """Handle tab change events"""
         tab_name = self.tabs.tabText(index)
-        logger.info(f"Tab changed to: {tab_name}")
+        # logger.info(f"Tab changed to: {tab_name}")
         self.controller.set_current_tab(tab_name) 
         

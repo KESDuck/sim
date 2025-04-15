@@ -129,7 +129,7 @@ class EngineerTabView(QWidget):
     
     def view_state_changed(self, state):
         """Handle view state change from UI"""
-        logger.info(f"View state: {state}")
+        # logger.info(f"View state: {state}")
         self.controller.set_view_state(state)
     
     def update_cross_position(self, scene_pos):

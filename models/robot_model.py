@@ -210,10 +210,14 @@ class RobotModel(QObject):
         """
         Queue command - set queue of points for insertion.
         Only allowed if current state is IDLE.
-        Points should be a list of (x,y,z,u) tuples.
+        Points should be a list of (x,y) tuples.
         """
         if self.app_state != self.IDLE:
-            logger.error(f"Cannot queue points: app state is {self.STATE_NAMES[self.app_state]}")
+            logger.error(f"Cannot queue points: app state is not IDLE")
+            return False
+
+        if self.robot_state != self.IDLE:
+            logger.error(f"Cannot queue points: robot state is not IDLE")
             return False
 
         # Update state first to prevent race conditions
@@ -226,7 +230,7 @@ class RobotModel(QObject):
         # Format command: queue x1,y1,z1,u1,...,xn,yn,zn,un
         coords = []
         for point in points:
-            if len(point) != 4:
+            if len(point) != 2:
                 logger.error(f"Invalid point format: {point}")
                 return False
             coords.extend([f"{coord:.2f}" for coord in point])

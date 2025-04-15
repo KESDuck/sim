@@ -195,31 +195,6 @@ class PylonCamera(CameraBase):
         self.is_reconnecting = False
         return success
 
-    def _print_camera_attributes(self):
-        """Print all available attributes of the camera"""
-        if self.camera and self.camera.IsOpen():
-            try:
-                # Get all attributes
-                attributes = dir(self.camera)
-                
-                # Filter out private attributes (starting with _)
-                public_attrs = [attr for attr in attributes if not attr.startswith('_')]
-                
-                # Print each attribute
-                logger.info("Available camera attributes:")
-                for attr in sorted(public_attrs):
-                    try:
-                        # Try to get the value if it's a property
-                        value = getattr(self.camera, attr)
-                        logger.info(f"{attr}: {value}")
-                    except:
-                        # If we can't get the value, just print the name
-                        logger.info(f"{attr}")
-                        
-            except Exception as e:
-                logger.error(f"Error printing camera attributes: {e}")
-
-
     def get_frame(self):
         """
         Get the latest frame from the image handler.
@@ -243,13 +218,18 @@ class PylonCamera(CameraBase):
                 grabResult.Release()  # Release the result as it's handled by the event handler
                 # Try to get the image again after the event handler has processed it
                 frame = self.image_handler.get_last_image()
+                if frame is None:
+                    logger.error("Frame was grabbed but image processing failed")
             else:
                 if grabResult:
+                    error_desc = grabResult.GetErrorDescription()
+                    error_code = grabResult.GetErrorCode()
+                    logger.error(f"Grab error: {error_desc} (Code: {error_code})")
                     grabResult.Release()
-                    # TODO: not validated
-                    print(f"Error: {grabResult.GetErrorDescription()} (Code: {grabResult.GetErrorCode()})")
+                else:
+                    logger.error("Grab result timeout or invalid")
         except Exception as e:
-            logger.warning(f"Error retrieving frame: {e}")
+            logger.error(f"Error retrieving frame: {e}")
         
         # Process the frame if available
         if frame is not None:
@@ -273,6 +253,30 @@ class PylonCamera(CameraBase):
                 logger.error(f"Critical: Error releasing Pylon camera: {e}")
         self.camera = None
         self.image_handler = None
+
+    def _print_camera_attributes(self):
+        """Print all available attributes of the camera"""
+        if self.camera and self.camera.IsOpen():
+            try:
+                # Get all attributes
+                attributes = dir(self.camera)
+                
+                # Filter out private attributes (starting with _)
+                public_attrs = [attr for attr in attributes if not attr.startswith('_')]
+                
+                # Print each attribute
+                logger.info("Available camera attributes:")
+                for attr in sorted(public_attrs):
+                    try:
+                        # Try to get the value if it's a property
+                        value = getattr(self.camera, attr)
+                        print(f"{attr}: {value}")
+                    except:
+                        # If we can't get the value, just print the name
+                        print(f"{attr}")
+                        
+            except Exception as e:
+                logger.error(f"Error printing camera attributes: {e}")
 
 class FileMockInterface(CameraBase):
     def __init__(self, path):
