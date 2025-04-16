@@ -65,7 +65,7 @@ class RobotModel(QObject):
         self.robot_u = 0.0
         
         # Queue tracking
-        self.robot_queue_index = 0
+        self.robot_queue_index = -1
         self.robot_queue_size = 0
         
         # Create and configure socket
@@ -168,7 +168,10 @@ class RobotModel(QObject):
                     
                     # timestamp = time.strftime("%H:%M:%S.") + str(int(time.time()*10) % 10)
                     # print(' ' * 100 + f'{timestamp} robot state: {self.STATE_NAMES[self.robot_state]}, {self.where()}')
-                    self.robot_status.emit(f'robot: {self.STATE_NAMES[self.robot_state]}, {self.where()}')
+                    stat_emit_str = f'robot: {self.STATE_NAMES[self.robot_state]}, '
+                    stat_emit_str += f'{self.where()}, '
+                    stat_emit_str += f'{self.robot_queue_index}/{self.robot_queue_size}'
+                    self.robot_status.emit(stat_emit_str)
                 except (ValueError, IndexError) as e:
                     logger.error(f"Error parsing status response: {e}")
             else:
@@ -211,11 +214,15 @@ class RobotModel(QObject):
             # logger.debug(f"App state not changed: {self.STATE_NAMES[self.robot_op_state]}")
             pass
     
-    def capture(self, x, y, z, u):
+    def capture(self, x, y, z, u) -> bool:
         """
         Capture command - move to position and prepare for imaging.
         Only allowed if current state is IDLE.
         """
+        if not self.is_connected:
+            logger.error("Robot not connected")
+            return False
+
         if self.robot_op_state != self.IDLE:
             logger.error(f"Cannot capture: robot is not idle")
             return False
@@ -240,6 +247,10 @@ class RobotModel(QObject):
         Only allowed if current state is IDLE.
         Points should be a list of (x,y) tuples.
         """
+        if not self.is_connected:
+            logger.error("Robot not connected")
+            return False
+        
         if self.robot_op_state != self.IDLE:
             logger.error(f"Cannot queue points: app state is not IDLE")
             return False
@@ -280,9 +291,12 @@ class RobotModel(QObject):
         Stop command - stop current operation.
         State 2 -> 0
         """
-        if self.robot_op_state != self.INSERTING:
-            logger.warning(f"Not inserting")
+        if not self.is_connected:
+            logger.error("Robot not connected")
             return False
+        
+        if self.robot_op_state != self.INSERTING:
+            logger.warning(f"robot_op_state is not inserting")
                     
         # Update state immediately to prevent further commands
         self._set_robot_op_state(self.IDLE)
@@ -303,12 +317,15 @@ class RobotModel(QObject):
         self.socket.close()
         self.is_connected = False
 
-    def where(self) -> str:
+    def where(self, simple=True) -> str:
         """
         Get the current robot position
         TODO: receive position from socket
         """
-        return f"x: {self.robot_x}, y: {self.robot_y}, z: {self.robot_z}, u: {self.robot_u}"
+        if simple:
+            return f"({self.robot_x:.1f}, {self.robot_y:.1f}, {self.robot_z:.1f}, {self.robot_u:.1f})"
+        else:
+            return f"x: {self.robot_x}, y: {self.robot_y}, z: {self.robot_z}, u: {self.robot_u}"
 
 if __name__ == "__main__":
     # connect to robot

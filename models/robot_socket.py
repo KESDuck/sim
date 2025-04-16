@@ -45,16 +45,19 @@ class RobotSocket(QObject):
         # TODO: expectation for status update
 
     def connect_to_server(self) -> bool:
-        """Connect to the robot server."""
+        """Connect to the robot server asynchronously."""
         try:
             # Abort any existing connection
             self.socket.abort()
             
-            # Connect and wait for connection
+            # Connect asynchronously - will trigger connected or errorOccurred signals
             self.socket.connectToHost(self.ip, self.port)
             
-            # Wait for connection with timeout
-            return self.socket.waitForConnected(int(self.default_timeout * 1000))
+            # Return immediately, don't wait
+            logger.info(f"Connecting to {self.ip}:{self.port}...")
+            
+            # Return true to indicate connection attempt started successfully
+            return True
             
         except Exception as e:
             error_msg = str(e)
@@ -82,7 +85,7 @@ class RobotSocket(QObject):
                 self._add_expectation("queue", "task queue_set", 3)
                 self._add_expectation("queue", "task queue_completed", 300)
             elif cmd_type == "stop":
-                self._add_expectation("stop", "task queue_stopped", 1)
+                self._add_expectation("stop", "task queue_stopped", 2)
                 # When stop is sent, we no longer expect queue_completed
                 self._remove_expectation("task queue_completed")
             elif cmd_type == "status":
@@ -113,7 +116,7 @@ class RobotSocket(QObject):
             start_time=time()
         )
         self.pending_expectations.append(expectation)
-        logger.debug(f"Added expectation: {expected_response} (timeout: {timeout}s)")
+        logger.debug(f"🔔: {expected_response} (timeout: {timeout}s)")
 
     def _remove_expectation(self, expected_response: str) -> None:
         """Remove all expectations with the given expected response."""
@@ -124,7 +127,7 @@ class RobotSocket(QObject):
         ]
         removed = before_count - len(self.pending_expectations)
         if removed > 0:
-            logger.debug(f"Removed {removed} expectations for response: {expected_response}")
+            logger.debug(f"🔕: {expected_response}")
 
     def _check_timeouts(self):
         """Check for timed out expectations"""

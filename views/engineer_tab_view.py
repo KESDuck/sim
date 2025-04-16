@@ -56,17 +56,15 @@ class EngineerTabView(QWidget):
         self.ui_save_frame_button = QPushButton("Save Frame", self)
         self.ui_save_frame_button.clicked.connect(self.controller.save_current_frame)
         
-        self.ui_move_to_capture = QPushButton("Capture 1 Only", self)
-        self.ui_move_to_capture.clicked.connect(lambda: self.controller.process_section_nonblocking(1, capture_only=True))
+        self.ui_move_to_capture = QPushButton("Sec 1", self)
+        self.ui_move_to_capture.clicked.connect(lambda: self.controller.process_section(1))
 
-        self.ui_move_to_capture_tmp = QPushButton("Capture 2 Only", self)
-        self.ui_move_to_capture_tmp.clicked.connect(lambda: self.controller.process_section_nonblocking(2, capture_only=True))
+        self.ui_move_to_capture_tmp = QPushButton("Sec 2", self)
+        self.ui_move_to_capture_tmp.clicked.connect(lambda: self.controller.process_section(2))
 
-        self.ui_process_section = QPushButton("Process Section 1", self)
-        self.ui_process_section.clicked.connect(lambda: self.controller.process_section_nonblocking(1))
 
-        self.ui_where_button = QPushButton("Where", self)
-        # TODO
+        self.ui_stop_button = QPushButton("Stop", self)
+        self.ui_stop_button.clicked.connect(self.controller.stop_insert)
 
         # Add engineer mode widgets
         self.button_layout.addWidget(self.ui_reconnect_button)
@@ -75,8 +73,7 @@ class EngineerTabView(QWidget):
         self.button_layout.addWidget(self.ui_save_frame_button)
         self.button_layout.addWidget(self.ui_move_to_capture)
         self.button_layout.addWidget(self.ui_move_to_capture_tmp)
-        self.button_layout.addWidget(self.ui_process_section)
-        self.button_layout.addWidget(self.ui_where_button)
+        self.button_layout.addWidget(self.ui_stop_button)
         
         # Status bar layout
         self.status_layout = QHBoxLayout()

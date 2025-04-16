@@ -140,7 +140,6 @@ class CentroidManager:
             
         return [map_image_to_robot(point, self.homo_matrix) for point in centroids]
 
-
 class AppController(QObject):
     """
     Controller that coordinates between models and views.
@@ -318,7 +317,7 @@ class AppController(QObject):
                 frame = self.get_frame_for_display(self.current_view_state)
                 self._prepare_and_emit_frame(frame)
 
-    def process_section_nonblocking(self, section_id, capture_only=True):
+    def process_section(self, section_id, capture_only=True):
         """Non-blocking implementation of process_section using signals/slots"""
         self._insertion_routine = True
 
@@ -333,7 +332,7 @@ class AppController(QObject):
             self._insertion_routine = False
             return False
         
-        logger.info(f"SLOT I - button pressed -> robot move to capture position")
+        logger.info(f"PHASE I - button pressed -> robot move to capture position")
 
         # Step 1: Move robot to capture position
         x, y, z, u = self.capture_positions[section_id]
@@ -352,7 +351,7 @@ class AppController(QObject):
             logger.error("(_on_robot_at_capture_position) Not in insertion routine")
             return
 
-        logger.info(f"SLOT II - robot at capture position -> wait 500ms to stabilize")
+        logger.info(f"PHASE II - robot at capture position -> wait 500ms to stabilize")
 
         if state != RobotModel.IDLE:
             logger.error("Robot not in idle after capture")
@@ -368,7 +367,7 @@ class AppController(QObject):
             logger.error("(_capture_and_process_image) Not in insertion routine")
             return
         
-        logger.info(f"SLOT III - waited 500ms -> camera capture -> wait 100ms")
+        logger.info(f"PHASE III - waited 500ms -> camera capture -> wait 100ms")
 
         self.vision.stop_live_capture()
         
@@ -377,7 +376,7 @@ class AppController(QObject):
             if self.vision.capture_and_process():
                 if self.centroid_manager.is_centroid_updated_recently():
                     # TODO: return if capture only
-                    QTimer.singleShot(100, self._queue_points_to_robot)
+                    QTimer.singleShot(200, self._queue_points_to_robot)
                 else:
                     self._insertion_routine = False
                     logger.error(f"Centroid not updated recently, please check code")
@@ -397,7 +396,7 @@ class AppController(QObject):
             logger.error("(_queue_points_to_robot) Not in insertion routine")
             return
         
-        logger.info(f"SLOT IV - waited 100ms -> send queue to robot")
+        logger.info(f"PHASE IV - waited 200ms -> send queue to robot")
 
         if self.robot.robot_op_state != RobotModel.IDLE:
             logger.error("Robot not in idle for some weird reason")
@@ -420,7 +419,7 @@ class AppController(QObject):
             logger.error("(_on_robot_insertion_complete) Not in insertion routine")
             return
         
-        logger.info(f"SLOT V - insertion completed")
+        logger.info(f"PHASE V - insertion completed")
 
         if state == RobotModel.IDLE:
             
@@ -434,7 +433,7 @@ class AppController(QObject):
     
     def stop_insert(self):
         """Connect stop button with robot stop"""
-        pass
+        self.robot.stop()
 
     def save_current_frame(self):
         if self.vision.frame_camera_stored is not None and self.vision.frame_camera_stored.size > 0:

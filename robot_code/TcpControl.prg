@@ -26,8 +26,8 @@ Function main
     MessageReceived = False
     
     Motor On
-    Power Low
-    SpeedFactor 20
+    Power High
+    SpeedFactor 10
     Speed 100; Accel 50, 50
     SpeedS 100; AccelS 50, 50
     Off ioGripper
@@ -82,6 +82,9 @@ Function ProcessReceivedMessage
                     ' Format: queue x1 y1 x2 y2 ... xN yN
                     If RobotState = 0 And (NumTokens - 1) Mod 2 = 0 Then
                         RobotState = 2  ' INSERTING
+                        
+                        ' Lower arm after capturing
+                        Go Here :Z(-19)
 
                         QueueSize = (NumTokens - 1) / 2
                         If QueueSize > 100 Then QueueSize = 100
@@ -180,7 +183,7 @@ Function StatusReporter
 
         SendMsg$ = "status " + Str$(RobotState) + ", " + Str$(CX(CurPos)) + ", " + Str$(CY(CurPos)) + ", " + Str$(CZ(CurPos)) + ", " + Str$(CU(CurPos))
         If RobotState = 2 Then ' INSERTING
-            SendMsg$ = SendMsg$ + ", " + Str$(CurrentIndex) + ", " + Str$(QueueSize)
+            SendMsg$ = SendMsg$ + ", " + Str$(CurrentIndex + 1) + ", " + Str$(QueueSize)
         Else
             SendMsg$ = SendMsg$ + ", 0, 0"
         EndIf
@@ -215,6 +218,8 @@ Function ProcessQueueItem
 
     If CurrentIndex >= QueueSize Then ' If done with queue
         RobotState = 0  ' IDLE
+        CurrentIndex = 0
+        QueueSize = 0
         Print "[ProcessQueueItem] Queue completed"
         Call SendResponse("task queue_completed")
     ElseIf RobotState = 2 Then
@@ -225,8 +230,9 @@ Function ProcessQueueItem
         Print "[ProcessQueueItem] Processing item ", CurrentIndex + 1, "/", QueueSize, ": (", MoveX, ", ", MoveY, ")"
         
         ' Do insertion
-        ' InsertCell(MoveX, MoveY)
+        InsertCell(MoveX, MoveY)
         Wait 0.5
+        ' Wait 3
         
         ' Increment index
         CurrentIndex = CurrentIndex + 1
