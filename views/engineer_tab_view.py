@@ -57,13 +57,13 @@ class EngineerTabView(QWidget):
         self.ui_save_frame_button.clicked.connect(self.controller.save_current_frame)
         
         self.ui_move_to_capture = QPushButton("Capture 1 Only", self)
-        self.ui_move_to_capture.clicked.connect(lambda: self.controller.process_section(1, capture_only=True))
+        self.ui_move_to_capture.clicked.connect(lambda: self.controller.process_section_nonblocking(1, capture_only=True))
 
         self.ui_move_to_capture_tmp = QPushButton("Capture 2 Only", self)
-        self.ui_move_to_capture_tmp.clicked.connect(lambda: self.controller.process_section(2, capture_only=True))
+        self.ui_move_to_capture_tmp.clicked.connect(lambda: self.controller.process_section_nonblocking(2, capture_only=True))
 
         self.ui_process_section = QPushButton("Process Section 1", self)
-        self.ui_process_section.clicked.connect(lambda: self.controller.process_section(1))
+        self.ui_process_section.clicked.connect(lambda: self.controller.process_section_nonblocking(1))
 
         self.ui_where_button = QPushButton("Where", self)
         # TODO

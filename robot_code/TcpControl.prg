@@ -157,7 +157,7 @@ Connect:
     Loop
 
 ErrHandle:
-    Print "[NetworkManager] ERROR: Error number ", Err, ". Error Message is ", ErrMsg$(Err)
+    Print "[NetworkManager] ERROR: Error number ", Err, ". Error Message: ", ErrMsg$(Err)
     Print "[NetworkManager] Reconnecting..."
     EResume Connect
 Fend
@@ -233,7 +233,7 @@ Function ProcessQueueItem
     Else
         Print "[ProcessQueueItem] Error: Robot is in a bad state"
     EndIf
-    Return
+    Exit Function
 
 ErrorHandler:
     Print "Error occurred, number: ", Err

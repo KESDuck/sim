@@ -22,7 +22,7 @@ class CounterApp(QWidget):
         self.layout = QVBoxLayout()
 
         self.number_box = QSpinBox()
-        self.number_box.setRange(0, 10000)  # Set a reasonable range
+        self.number_box.setRange(0, 1000)  # Set a reasonable range
         self.layout.addWidget(self.number_box)
 
         self.start_pause_button = QPushButton("Start")
@@ -39,7 +39,7 @@ class CounterApp(QWidget):
             self.timer.stop()
             self.start_pause_button.setText("Start")
         else:
-            self.timer.start(500)  # 1000 ms = 1 second
+            self.timer.start(5)  # 1000 ms = 1 second
             self.start_pause_button.setText("Pause")
 
     def increment_number(self):

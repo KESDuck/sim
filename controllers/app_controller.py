@@ -77,8 +77,8 @@ class CentroidManager:
         # Convert to robot coordinates if needed
         robot_centroids = self.convert_to_robot_coords(sorted_centroids)
         
-        # Store processed centroids
-        self.processed_centroids = robot_centroids
+        # Filter and store processed centroids
+        self.processed_centroids = robot_centroids[:10] if len(robot_centroids) > 3 else robot_centroids
         
         # Store timestamp when processing completed
         self.last_processed_time = time.time()
@@ -193,6 +193,9 @@ class AppController(QObject):
         
         # Emit initial status message
         self.status_message.emit("Press R Key to note current cross position")
+
+        # Process note
+        self._insertion_routine = False
         
         # Connect to vision model's signals - do this last after all methods are defined
         self.vision.frame_processed.connect(self.on_frame_processed)
@@ -315,74 +318,118 @@ class AppController(QObject):
                 frame = self.get_frame_for_display(self.current_view_state)
                 self._prepare_and_emit_frame(frame)
 
-    def process_section(self, section_id, capture_only=False) -> bool:
-        """
-            capture and process a section
-            - I. move robot (and conveyor) to section_id
-            - II. capture and process image
-            - III. queue positions to robot 
-            - IV. robot start inserting
-        """
+    def process_section_nonblocking(self, section_id, capture_only=True):
+        """Non-blocking implementation of process_section using signals/slots"""
+        self._insertion_routine = True
 
+        # Check preconditions
         if not self.robot.is_connected:
-            logger.error(f"Robot is not connected")
+            self.status_message.emit("Robot not connected")
+            self._insertion_routine = False
             return False
         
         if self.robot.robot_state != RobotModel.IDLE:
-            logger.error(f"Robot not in IDLE state")
+            self.status_message.emit("Robot not in IDLE state")
+            self._insertion_routine = False
             return False
         
-        ##### I #####
-        # Get capture position for this section
+        logger.info(f"SLOT I - button pressed -> robot move to capture position")
+
+        # Step 1: Move robot to capture position
         x, y, z, u = self.capture_positions[section_id]
+        self.robot.capture(x, y, z, u)
         
-        # Move robot to capture position
-        if not self.robot.capture(x, y, z, u):
-            logger.error(f"Failed to send robot to capture position")
-            return False
+        # Connect to the robot's state change signal to trigger next step
+        # This is one-time connection that disconnects after execution
+        self.robot.robot_op_state_changed.connect(self._on_robot_at_capture_position)
+            
+    def _on_robot_at_capture_position(self, state):
+        """Called when robot reaches capture position"""
+        # Disconnect from signal to prevent multiple calls
+        self.robot.robot_op_state_changed.disconnect(self._on_robot_at_capture_position)
+
+        if not self._insertion_routine:
+            logger.error("(_on_robot_at_capture_position) Not in insertion routine")
+            return
+
+        logger.info(f"SLOT II - robot at capture position -> wait 500ms to stabilize")
+
+        if state != RobotModel.IDLE:
+            logger.error("Robot not in idle after capture")
+            self._insertion_routine = False
+            return  # Not the state we're waiting for
         
-        # Wait until robot is at capture position
-        while self.robot.app_state != RobotModel.IDLE:
-            time.sleep(0.1)
+        # Pause briefly to stabilize
+        QTimer.singleShot(500, self._capture_and_process_image)
         
-        ##### II #####
-        # Stop live capture if running
+    def _capture_and_process_image(self):
+        """Capture and process image after robot is in position"""
+        if not self._insertion_routine:
+            logger.error("(_capture_and_process_image) Not in insertion routine")
+            return
+        
+        logger.info(f"SLOT III - waited 500ms -> camera capture -> wait 100ms")
+
         self.vision.stop_live_capture()
         
-        # Longer pause to make sure robot is not shaking
-        time.sleep(0.5)
-        
-        # Capture and process frame, with 3 retries
-        # Vision model will emit frame_processed signal that will update centroids
-        # update centroids will sort, filter, and convert centroids to robot coordinates
+        # Capture image and connect to frame_processed signal
         for i in range(3):
             if self.vision.capture_and_process():
+                if self.centroid_manager.is_centroid_updated_recently():
+                    # TODO: return if capture only
+                    QTimer.singleShot(100, self._queue_points_to_robot)
+                else:
+                    self._insertion_routine = False
+                    logger.error(f"Centroid not updated recently, please check code")
+                    time.sleep(0.5)
                 break
             else:
-                logger.error(f"Failed to capture, retrying...")
+                logger.warning(f"Failed to capture image, retrying...")
+                # TODO: avoid busy wait
                 time.sleep(0.5)
         else:
-            logger.error(f"Failed to capture section {section_id}")
-            return False
-
-        # sanity check that centroid is updated recently
-        if not self.centroid_manager.is_centroid_updated_recently():
-            logger.error(f"Centroid not updated recently")
-            return False
-
-        if capture_only:
-            return True
+            self._insertion_routine = False
+            self.status_message.emit("Failed to capture image after multiple retries")
         
-        ##### III, IV #####
+    def _queue_points_to_robot(self):
+        """Send processed centroids to robot"""
+        if not self._insertion_routine:
+            logger.error("(_queue_points_to_robot) Not in insertion routine")
+            return
+        
+        logger.info(f"SLOT IV - waited 100ms -> send queue to robot")
 
-        # Pause to make sure state is IDLE
-        time.sleep(1.0)
+        if self.robot.robot_op_state != RobotModel.IDLE:
+            logger.error("Robot not in idle for some weird reason")
+            self._insertion_routine = False
+            return  # Not the state we're waiting for
 
-        # Send queue, robot state will be in INSERTING unless stopped or queue finished
-        if not self.robot.queue_points(self.centroid_manager.processed_centroids):
-            return False
+        # Queue points and connect to completion signal
+        if self.robot.queue_points(self.centroid_manager.processed_centroids):
+            # Connect to robot state change to detect completion
+            self.robot.robot_op_state_changed.connect(self._on_robot_insertion_complete)
+        else:
+            logger.error("Failed to send queue")
+            self._insertion_routine = False
+        
+    def _on_robot_insertion_complete(self, state):
+        """Called when robot completes insertion task or stopped"""
+        self.robot.robot_op_state_changed.disconnect(self._on_robot_insertion_complete)
 
-        return True
+        if not self._insertion_routine:
+            logger.error("(_on_robot_insertion_complete) Not in insertion routine")
+            return
+        
+        logger.info(f"SLOT V - insertion completed")
+
+        if state == RobotModel.IDLE:
+            
+            
+            self.status_message.emit("Insertion complete")
+        else:
+            logger.error("Robot not in idle for some weird reason")
+
+        self._insertion_routine = False
 
     
     def stop_insert(self):
