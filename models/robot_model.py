@@ -116,7 +116,7 @@ class RobotModel(QObject):
 
     def _on_connection_error(self, error_msg):
         """Handle connection error."""
-        logger.error(f"Connection error: {error_msg}")
+        # logger.error(f"Connection error: {error_msg}")
         self.is_connected = False
         self.status_timer.stop()
         self.robot_connection_error.emit(error_msg)
@@ -259,18 +259,18 @@ class RobotModel(QObject):
             logger.error(f"Cannot queue points: robot state is not IDLE")
             return False
 
-        # Update state first to prevent race conditions
-        self._set_robot_op_state(self.INSERTING)
-
         if not points or len(points) == 0:
             logger.error("Cannot queue empty point list")
             return False
-            
+
+        self._set_robot_op_state(self.INSERTING)
+
         # Format command: queue x1,y1,z1,u1,...,xn,yn,zn,un
         coords = []
         for point in points:
             if len(point) != 2:
                 logger.error(f"Invalid point format: {point}")
+                self._set_robot_op_state(self.IDLE)
                 return False
             coords.extend([f"{coord:.2f}" for coord in point])
             

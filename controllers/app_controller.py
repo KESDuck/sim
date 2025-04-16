@@ -47,8 +47,11 @@ class CentroidManager:
     """
     def __init__(self, homo_matrix):
         self.homo_matrix = homo_matrix
-        self.raw_centroids = None  # used by _prepare_and_emit_frame
-        self.processed_centroids = None  # used by _update_centroids
+        self.img_raw_centroids = []
+        self.img_sorted_centroids = []
+        self.img_filtered_centroids = []   # used by _prepare_and_emit_frame
+        self.robot_centroids = []
+
         self.last_processed_time = None  # Timestamp when processing last completed
 
     def process_centroids(self, centroids):
@@ -64,26 +67,111 @@ class CentroidManager:
         Returns:
             list: Processed centroids ready for robot use
         """
-        # Store the raw centroids
-        self.raw_centroids = centroids
-        
         if centroids is None or len(centroids) == 0:
-            self.processed_centroids = []
+            self.img_raw_centroids = []
+            self.img_sorted_centroids = []
+            self.img_filtered_centroids = []   # used by _prepare_and_emit_frame
+            self.robot_centroids = []
             return []
+        
+        # Store the raw centroids
+        self.img_raw_centroids = centroids
             
         # Sort centroids
-        sorted_centroids = self.sort_centroids(centroids)
-        
+        self.img_sorted_centroids = self.sort_centroids(centroids)
+
+        # Filter centroids to keep only those within boundary
+        self.img_filtered_centroids = self.filter_centroids(self.img_sorted_centroids)
+
+        # tmp
+        self.img_filtered_centroids = self.filter_test_centroids(self.img_filtered_centroids)
+        self.img_filtered_centroids = self.img_filtered_centroids[:10] if len(self.img_filtered_centroids) > 10 else self.img_filtered_centroids
+
         # Convert to robot coordinates if needed
-        robot_centroids = self.convert_to_robot_coords(sorted_centroids)
-        
-        # Filter and store processed centroids
-        self.processed_centroids = robot_centroids[:10] if len(robot_centroids) > 3 else robot_centroids
-        
+        self.robot_centroids = self.convert_to_robot_coords(self.img_filtered_centroids)
+                
         # Store timestamp when processing completed
         self.last_processed_time = time.time()
         
-        return robot_centroids
+        return self.robot_centroids
+
+    def filter_centroids(self, centroids):
+        """
+        Filter centroids to keep only those within configured boundary.
+        
+        Args:
+            centroids (list): List of (x, y) coordinates
+            
+        Returns:
+            list: Filtered list of centroids within boundary
+        """
+        if not centroids:
+            return []
+        
+        # Get boundary values from config
+        x_min = config["boundary"]["x_min"]
+        x_max = config["boundary"]["x_max"]
+        y_min = config["boundary"]["y_min"]
+        y_max = config["boundary"]["y_max"]
+        
+        # Filter centroids
+        return [point for point in centroids 
+                if x_min < point[0] < x_max and y_min < point[1] < y_max]
+    
+    def filter_test_centroids(self, centroids):
+        """
+        Select 9 centroids evenly distributed in a 3x3 grid.
+        
+        Args:
+            centroids (list): List of (x, y) coordinates
+            
+        Returns:
+            list: List of 9 evenly distributed centroids
+        """
+        if not centroids or len(centroids) < 9:
+            return centroids  # Return all if less than 9
+        
+        # Get boundary values from config
+        x_min = config["boundary"]["x_min"]
+        x_max = config["boundary"]["x_max"]
+        y_min = config["boundary"]["y_min"]
+        y_max = config["boundary"]["y_max"]
+        
+        # Define 3x3 grid cells
+        x_step = (x_max - x_min) / 3
+        y_step = (y_max - y_min) / 3
+        
+        selected_centroids = []
+        
+        # For each grid cell, find closest centroid to cell center
+        for i in range(3):
+            for j in range(3):
+                # Calculate cell center
+                cell_center_x = x_min + (i + 0.5) * x_step
+                cell_center_y = y_min + (j + 0.5) * y_step
+                
+                # Find centroid closest to this cell center
+                min_distance = float('inf')
+                closest_centroid = None
+                
+                for centroid in centroids:
+                    # Check if centroid is in this cell
+                    if (x_min + i * x_step <= centroid[0] <= x_min + (i + 1) * x_step and
+                        y_min + j * y_step <= centroid[1] <= y_min + (j + 1) * y_step):
+                        
+                        # Calculate distance to cell center
+                        dist = ((centroid[0] - cell_center_x) ** 2 + 
+                                (centroid[1] - cell_center_y) ** 2) ** 0.5
+                        
+                        if dist < min_distance:
+                            min_distance = dist
+                            closest_centroid = centroid
+                
+                # If found a centroid in this cell, add it
+                if closest_centroid:
+                    selected_centroids.append(closest_centroid)
+        
+        return selected_centroids
 
     def is_centroid_updated_recently(self):
         """Check if centroid processing was done recently."""
@@ -169,7 +257,7 @@ class AppController(QObject):
         
         # keep track if it is batch inserting 
         self.pause_insert = False
-
+        
         # TODO: this determines screw boundaries
         self.capture_position_idx = 0
         self.conveyor_position_idx = 0
@@ -208,7 +296,7 @@ class AppController(QObject):
         
     def _on_robot_error(self, error_msg):
         """Handle robot connection error."""
-        logger.error(f"Robot connection error: {error_msg}")
+        # logger.error(f"Robot connection error: {error_msg}")
         self.status_message.emit(f"Robot connection error: {error_msg}, try reconnect button")
 
     def _on_robot_status(self, status_message):
@@ -244,10 +332,10 @@ class AppController(QObject):
         frame = frame.copy()
         
         # Add overlay with centroids if available and requested
-        if draw_cells and self.current_view_state != "live" and self.centroid_manager.raw_centroids is not None:
+        if draw_cells and self.current_view_state != "live" and self.centroid_manager.img_filtered_centroids is not None:
             frame = draw_points(
                 frame, 
-                self.centroid_manager.raw_centroids, 
+                self.centroid_manager.img_filtered_centroids, 
                 -1,  # No current index 
                 size=10
             )
@@ -351,15 +439,15 @@ class AppController(QObject):
             logger.error("(_on_robot_at_capture_position) Not in insertion routine")
             return
 
-        logger.info(f"PHASE II - robot at capture position -> wait 500ms to stabilize")
+        logger.info(f"PHASE II - robot at capture position -> wait 1000ms to stabilize")
 
         if state != RobotModel.IDLE:
-            logger.error("Robot not in idle after capture")
+            logger.error(f"Robot not in idle after moving to capture, current state: {state}")
             self._insertion_routine = False
             return  # Not the state we're waiting for
         
         # Pause briefly to stabilize
-        QTimer.singleShot(500, self._capture_and_process_image)
+        QTimer.singleShot(1000, self._capture_and_process_image)
         
     def _capture_and_process_image(self):
         """Capture and process image after robot is in position"""
@@ -367,7 +455,7 @@ class AppController(QObject):
             logger.error("(_capture_and_process_image) Not in insertion routine")
             return
         
-        logger.info(f"PHASE III - waited 500ms -> camera capture -> wait 100ms")
+        logger.info(f"PHASE III - waited 1000ms -> camera capture -> wait 500ms")
 
         self.vision.stop_live_capture()
         
@@ -376,7 +464,7 @@ class AppController(QObject):
             if self.vision.capture_and_process():
                 if self.centroid_manager.is_centroid_updated_recently():
                     # TODO: return if capture only
-                    QTimer.singleShot(200, self._queue_points_to_robot)
+                    QTimer.singleShot(500, self._queue_points_to_robot)
                 else:
                     self._insertion_routine = False
                     logger.error(f"Centroid not updated recently, please check code")
@@ -396,7 +484,7 @@ class AppController(QObject):
             logger.error("(_queue_points_to_robot) Not in insertion routine")
             return
         
-        logger.info(f"PHASE IV - waited 200ms -> send queue to robot")
+        logger.info(f"PHASE IV - waited 500ms -> send queue to robot")
 
         if self.robot.robot_op_state != RobotModel.IDLE:
             logger.error("Robot not in idle for some weird reason")
@@ -404,7 +492,7 @@ class AppController(QObject):
             return  # Not the state we're waiting for
 
         # Queue points and connect to completion signal
-        if self.robot.queue_points(self.centroid_manager.processed_centroids):
+        if self.robot.queue_points(self.centroid_manager.robot_centroids):
             # Connect to robot state change to detect completion
             self.robot.robot_op_state_changed.connect(self._on_robot_insertion_complete)
         else:

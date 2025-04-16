@@ -134,17 +134,25 @@ Connect:
             Input #201, ReceivedMessage$
             If ReceivedMessage$ <> "" Then
                 Print "[NetworkManager] Received: ", ReceivedMessage$
-                MessageReceived = True
-                ' Wait for message to be processed
-                Real startTime
-                TmReset 0
-                Do While MessageReceived And (Tmr(0) - startTime < 2.0)
-                    Wait 0.01
-                Loop
-                ' Timeout safety - don't wait forever
-                If MessageReceived Then
-                    Print "[NetworkManager] Message processing timeout"
-                    MessageReceived = False
+                
+                ' Process urgent commands directly
+                If ReceivedMessage$ = "stop" And RobotState = 2 Then
+                    Print "[NetworkManager] Stop requested during insertion"
+                    Call DoStopTask
+                Else
+                    ' Process non-urgent messages through normal flow
+                    MessageReceived = True
+                    ' Wait for message to be processed
+                    Real startTime
+                    TmReset 0
+                    Do While MessageReceived And (Tmr(0) - startTime < 2.0)
+                        Wait 0.01
+                    Loop
+                    ' Timeout safety - don't wait forever
+                    If MessageReceived Then
+                        Print "[NetworkManager] Message processing timeout"
+                        MessageReceived = False
+                    EndIf
                 EndIf
             EndIf
         EndIf
@@ -250,6 +258,7 @@ ErrorHandler:
 Fend
 
 Function InsertCell(ByVal cellX As Real, ByVal cellY As Real)
+    ' TODO: Use parallel processing !...!
     Jump pFeederReceive -Y(12) LimZ -18
     Go pFeederReceive
     On ioGripper

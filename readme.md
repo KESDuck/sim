@@ -237,6 +237,7 @@ Send all cell location to robot and robot send insertion status back to app
 Force sensor on grabber to skip insertion for bad cells  
 Automatic (one click) homography calibration  
 Hardware to force web plate onto the 3x3 rack  
+Compliance mechanism on the 3x3 rack?
 40% robot speed  
 Conveyor system  
 
