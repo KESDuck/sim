@@ -12,7 +12,6 @@ logger = get_logger("Controller")
 with open('config.yml', 'r') as file:
     config = yaml.safe_load(file)
 
-
 class CrossPositionManager:
     """
     Manages the position of the cross overlay on camera frames.
@@ -230,65 +229,107 @@ class CentroidManager:
 
 class AppController(QObject):
     """
-    Controller that coordinates between models and views.
+    Controller that coordinates between UI, robot, and vision.
     Manages centroids selection, robot positioning, camera frame capture, and processing flow.
     """
-    # Signals for communicating with the view
+    # Signals
     cell_index_changed = pyqtSignal(int)
     cell_max_changed = pyqtSignal(int)
-    frame_updated = pyqtSignal(object)  # Signal to send frames to the view
-    status_message = pyqtSignal(str)    # Signal for status messages
-    robot_status_message = pyqtSignal(str)  # Signal for robot status messages
+    frame_updated = pyqtSignal(object)
+    status_message = pyqtSignal(str)
+    robot_status_message = pyqtSignal(str)
+
+    # State machine states
+    STATE_IDLE = "IDLE"
+    STATE_MOVING_1 = "MOVING_1"
+    STATE_CAPTURING = "CAPTURING"
+    STATE_MOVING_2 = "MOVING_2"
+    STATE_QUEUEING = "QUEUEING"
+    STATE_INSERTING = "INSERTING"
+    STATE_TESTING = "TESTING"
+
+    # State machine modes
+    MODE_IDLE = "IDLE MODE"
+    MODE_INSERT = "INSERT MODE"
+    MODE_TEST = "TEST MODE"
+    MODE_CAPTURE = "CAPTURE MODE"
+
+    # expected responses
+    EXPECT_POSITION_REACHED = "POSITION_REACHED"
+    EXPECT_QUEUE_SET = "QUEUE_SET"
+    EXPECT_INSERT_DONE = "INSERT_DONE"
+    EXPECT_TEST_DONE = "TEST_DONE"
 
     def __init__(self):
         super().__init__()
+        
+        # Initialize models
+        self._init_models()
+        
+        # Initialize UI state
+        self._init_ui_state()
+        
+        # Initialize state machine state
+        self._init_state_machine()
+        
+        # Connect signals
+        self._connect_signals()
+    
+    # ===== Initialization Methods =====
+    
+    def _init_models(self):
+        """Initialize robot and vision models"""
         self.robot = RobotModel(ip=config["robot"]["ip"], port=config["robot"]["port"])
         self.vision = VisionModel(cam_type=config["cam_type"])
-        
-        # Connect robot signals
-        self.robot.robot_connected.connect(self._on_robot_connected)
-        self.robot.robot_connection_error.connect(self._on_robot_error)
-        self.robot.robot_status.connect(self._on_robot_status)
         
         # Initialize managers
         self.homo_matrix = config["homo_matrix"]
         self.cross_manager = CrossPositionManager(self.homo_matrix)
         self.centroid_manager = CentroidManager(self.homo_matrix)
         
-        # keep track if it is batch inserting 
-        self.pause_insert = False
-        
-        # TODO: this determines screw boundaries
-        self.capture_position_idx = 0
-        self.conveyor_position_idx = 0
-
+        # Capture positions
         self.capture_positions = config["capture_positions"]
-
-        # QTimer to update frames
-        self.update_frame_timer = QTimer(self)
-        self.update_frame_timer.timeout.connect(self.update_frame)
-        self.update_frame_timer.start(200)
-
+    
+    def _init_ui_state(self):
+        """Initialize UI state variables"""
         # Current view state (live/paused/etc.)
         self.current_view_state = "paused orig"
         
-        # Current active tab ("Engineer" or "User")
+        # Current active tab
         self.current_tab = "Engineer"
         
         # List to store cross positions
         self.cross_positions = []
         
-        # Emit initial status message
-        self.status_message.emit("Press R Key to note current cross position")
-
-        # Process note
-        self._insertion_routine = False
+        # QTimer to update frames
+        self.capture_process_frame_timer = QTimer(self)
+        self.capture_process_frame_timer.timeout.connect(self.capture_process_frame)
+        self.capture_process_frame_timer.start(200)
         
-        # Connect to vision model's signals - do this last after all methods are defined
-        self.vision.frame_processed.connect(self.on_frame_processed)
-        self.vision.live_worker.frame_ready.connect(self.on_live_frame_ready)
-        self.vision.live_worker.error_occurred.connect(self.on_camera_error)
-
+    def _init_state_machine(self):
+        """Initialize state machine variables"""
+        self.current_operation_state = self.STATE_IDLE
+        self.current_operation_mode = self.MODE_IDLE
+        self.operation_section_id = None
+    
+    def _connect_signals(self):
+        """Connect signals between components"""
+        # Connect robot signals
+        self.robot.robot_connected.connect(self._on_robot_connected)
+        self.robot.robot_connection_error.connect(self._on_robot_error)
+        self.robot.robot_status.connect(self._on_robot_status)
+        self.robot.error.connect(self._on_robot_error)
+        
+        # Connect vision signals
+        self.vision.frame_processed.connect(self._on_frame_processed)
+        self.vision.live_worker.frame_ready.connect(self._on_live_frame_ready)
+        self.vision.live_worker.error_occurred.connect(self._on_camera_error)
+        
+        # Initial status message
+        self.status_message.emit("Press R Key to note current cross position")
+    
+    # ===== Signal Handlers =====
+    
     def _on_robot_connected(self):
         """Handle successful robot connection."""
         logger.info("Robot connected successfully")
@@ -296,35 +337,47 @@ class AppController(QObject):
         
     def _on_robot_error(self, error_msg):
         """Handle robot connection error."""
-        # logger.error(f"Robot connection error: {error_msg}")
-        self.status_message.emit(f"Robot connection error: {error_msg}, try reconnect button")
+        self.status_message.emit(f"Robot error: {error_msg}")
 
     def _on_robot_status(self, status_message):
         """Handle robot status messages."""
         self.robot_status_message.emit(status_message)
-
-    def on_frame_processed(self, success):
+    
+    def _on_frame_processed(self, success):
         """Handle completion of frame processing from the vision model"""
         if success:
-            # Update centroids data
             self._update_centroids()
-            
-            # Get the processed frame based on current view state
-            frame = self.get_frame_for_display(self.current_view_state)
+            frame = self._get_frame_for_display(self.current_view_state)
             self._prepare_and_emit_frame(frame)
         else:
             logger.error("Process image failure")
             self.status_message.emit("Process image failure")
             
-    def on_live_frame_ready(self, frame):
-        """Handle live frame updates from the vision thread"""
+    def _on_live_frame_ready(self, frame):
+        """Handle live frame updates from the live camera thread"""
         if self.current_view_state == "live" and self.current_tab == "Engineer":
-            # Store the frame and emit it
             self.vision.frame_camera_live = frame
             self._prepare_and_emit_frame(frame, draw_cells=False)
-
+    
+    def _on_camera_error(self, error_message):
+        """Handle camera error messages from the worker thread"""
+        logger.error(f"Camera error: {error_message}")
+        self.status_message.emit(error_message)
+    
+    # ===== Frame Handling Methods =====
+    
+    def capture_process_frame(self):
+        """Process frame when requested (e.g., via Process button)."""
+        if self.current_view_state == "live":
+            self.vision.live_capture()
+        else:
+            self.vision.stop_live_capture()
+            if self.vision.capture_and_process():
+                frame = self._get_frame_for_display(self.current_view_state)
+                self._prepare_and_emit_frame(frame)
+    
     def _prepare_and_emit_frame(self, frame, draw_cells=True):
-        """Helper method to prepare a frame with overlays and emit it."""
+        """Draw cells and cross on frame then emit"""
         if frame is None:
             return
             
@@ -349,9 +402,30 @@ class AppController(QObject):
         
         # Emit the prepared frame
         self.frame_updated.emit(frame)
-
+    
+    def _get_frame_for_display(self, view_state):
+        """Get appropriate frame based on view state."""
+        if view_state == "live":
+            return self.vision.frame_camera_live
+        elif view_state == "paused orig":
+            return self.vision.frame_camera_stored
+        elif view_state == "paused thres":
+            return self.vision.frame_threshold
+        elif view_state == "paused contours":
+            return self.vision.frame_contour
+        else:
+            logger.error(f"Bad view state: {view_state}")
+            return None
+    
+    def _update_centroids(self):
+        """Helper method to update centroids data from the vision model."""
+        _centroids = self.centroid_manager.process_centroids(self.vision.centroids)
+        self.cell_max_changed.emit(len(_centroids) - 1 if len(_centroids) > 0 else 0)
+    
+    # ===== UI Control Methods =====
+    
     def set_view_state(self, state):
-        """Update the current view state."""
+        """Update the current view state: live, paused orig, paused thres, paused contours."""
         previous_state = self.current_view_state
         self.current_view_state = state
         logger.info(f"View state changed to: {state}")
@@ -359,13 +433,13 @@ class AppController(QObject):
         # Adjust frame timer based on view state
         if state == "live" and self.current_tab == "Engineer":
             # For live view, start the timer and use the background thread
-            if not self.update_frame_timer.isActive():
-                self.update_frame_timer.start(200)
+            if not self.capture_process_frame_timer.isActive():
+                self.capture_process_frame_timer.start(200)
             self.vision.live_capture()
         else:
             # For non-live states, stop the timer and live capture
-            if self.update_frame_timer.isActive():
-                self.update_frame_timer.stop()
+            if self.capture_process_frame_timer.isActive():
+                self.capture_process_frame_timer.stop()
             self.vision.stop_live_capture()
             
             # If we're switching from live to paused and we don't have a stored frame,
@@ -375,160 +449,49 @@ class AppController(QObject):
                 self.vision.capture_and_process()
             
             # Emit the appropriate frame for this state
-            frame = self.get_frame_for_display(state)
+            frame = self._get_frame_for_display(state)
             self._prepare_and_emit_frame(frame)
 
-    def _update_centroids(self):
-        """Helper method to update centroids data from the vision model."""
-        # Get centroids from vision and store them in centroid manager
-        _centroids = self.centroid_manager.process_centroids(self.vision.centroids)
-        self.cell_max_changed.emit(len(_centroids) - 1 if len(_centroids) > 0 else 0)
+    def set_current_tab(self, tab_name):
+        """Set the current active tab."""
+        self.current_tab = tab_name
+        logger.info(f"Active tab changed to: {tab_name}")
         
-    def update_frame(self):
-        """Process frame when requested (e.g., via Process button)."""
-        # Get the current state
-        # logger.info(f"Updating frame in state: {self.current_view_state}")
-        
+        # If changing tabs, update frame timer state and live camera state
         if self.current_view_state == "live":
-            # For live mode, just ensure live capture is running
-            # The frame updates will come through the signal handler
-            self.vision.live_capture()
-        else:
-            # This is a manual capture request (Process button was clicked)
-            # Make sure live capture is stopped
-            self.vision.stop_live_capture()
-            
-            # Capture and process a new frame
-            # logger.info("Processing new frame on request")
-            if self.vision.capture_and_process():
-                # If successful, update the displayed frame
-                frame = self.get_frame_for_display(self.current_view_state)
-                self._prepare_and_emit_frame(frame)
-
-    def process_section(self, section_id, capture_only=True):
-        """Non-blocking implementation of process_section using signals/slots"""
-        self._insertion_routine = True
-
-        # Check preconditions
-        if not self.robot.is_connected:
-            self.status_message.emit("Robot not connected")
-            self._insertion_routine = False
-            return False
-        
-        if self.robot.robot_state != RobotModel.IDLE:
-            self.status_message.emit("Robot not in IDLE state")
-            self._insertion_routine = False
-            return False
-        
-        logger.info(f"PHASE I - button pressed -> robot move to capture position")
-
-        # Step 1: Move robot to capture position
-        x, y, z, u = self.capture_positions[section_id]
-        self.robot.capture(x, y, z, u)
-        
-        # Connect to the robot's state change signal to trigger next step
-        # This is one-time connection that disconnects after execution
-        self.robot.robot_op_state_changed.connect(self._on_robot_at_capture_position)
-            
-    def _on_robot_at_capture_position(self, state):
-        """Called when robot reaches capture position"""
-        # Disconnect from signal to prevent multiple calls
-        self.robot.robot_op_state_changed.disconnect(self._on_robot_at_capture_position)
-
-        if not self._insertion_routine:
-            logger.error("(_on_robot_at_capture_position) Not in insertion routine")
-            return
-
-        logger.info(f"PHASE II - robot at capture position -> wait 1000ms to stabilize")
-
-        if state != RobotModel.IDLE:
-            logger.error(f"Robot not in idle after moving to capture, current state: {state}")
-            self._insertion_routine = False
-            return  # Not the state we're waiting for
-        
-        # Pause briefly to stabilize
-        QTimer.singleShot(1000, self._capture_and_process_image)
-        
-    def _capture_and_process_image(self):
-        """Capture and process image after robot is in position"""
-        if not self._insertion_routine:
-            logger.error("(_capture_and_process_image) Not in insertion routine")
-            return
-        
-        logger.info(f"PHASE III - waited 1000ms -> camera capture -> wait 500ms")
-
-        self.vision.stop_live_capture()
-        
-        # Capture image and connect to frame_processed signal
-        for i in range(3):
-            if self.vision.capture_and_process():
-                if self.centroid_manager.is_centroid_updated_recently():
-                    # TODO: return if capture only
-                    QTimer.singleShot(500, self._queue_points_to_robot)
-                else:
-                    self._insertion_routine = False
-                    logger.error(f"Centroid not updated recently, please check code")
-                    time.sleep(0.5)
-                break
+            if tab_name == "Engineer":
+                if not self.capture_process_frame_timer.isActive():
+                    self.capture_process_frame_timer.start(200)
+                # Enable live camera in Engineer tab with live view
+                self.vision.live_capture()
             else:
-                logger.warning(f"Failed to capture image, retrying...")
-                # TODO: avoid busy wait
-                time.sleep(0.5)
+                if self.capture_process_frame_timer.isActive():
+                    self.capture_process_frame_timer.stop()
+                # Disable live camera in other tabs
+                self.vision.stop_live_capture()
+                # Emit a single frame for the current state
+                frame = self._get_frame_for_display(self.current_view_state)
+                self._prepare_and_emit_frame(frame)
         else:
-            self._insertion_routine = False
-            self.status_message.emit("Failed to capture image after multiple retries")
-        
-    def _queue_points_to_robot(self):
-        """Send processed centroids to robot"""
-        if not self._insertion_routine:
-            logger.error("(_queue_points_to_robot) Not in insertion routine")
-            return
-        
-        logger.info(f"PHASE IV - waited 500ms -> send queue to robot")
-
-        if self.robot.robot_op_state != RobotModel.IDLE:
-            logger.error("Robot not in idle for some weird reason")
-            self._insertion_routine = False
-            return  # Not the state we're waiting for
-
-        # Queue points and connect to completion signal
-        if self.robot.queue_points(self.centroid_manager.robot_centroids):
-            # Connect to robot state change to detect completion
-            self.robot.robot_op_state_changed.connect(self._on_robot_insertion_complete)
-        else:
-            logger.error("Failed to send queue")
-            self._insertion_routine = False
-        
-    def _on_robot_insertion_complete(self, state):
-        """Called when robot completes insertion task or stopped"""
-        self.robot.robot_op_state_changed.disconnect(self._on_robot_insertion_complete)
-
-        if not self._insertion_routine:
-            logger.error("(_on_robot_insertion_complete) Not in insertion routine")
-            return
-        
-        logger.info(f"PHASE V - insertion completed")
-
-        if state == RobotModel.IDLE:
-            
-            
-            self.status_message.emit("Insertion complete")
-        else:
-            logger.error("Robot not in idle for some weird reason")
-
-        self._insertion_routine = False
-
-    
-    def stop_insert(self):
-        """Connect stop button with robot stop"""
-        self.robot.stop()
+            # For non-live states, always ensure live camera is stopped
+            self.vision.stop_live_capture()
 
     def save_current_frame(self):
+        """Save the current camera frame to disk."""
         if self.vision.frame_camera_stored is not None and self.vision.frame_camera_stored.size > 0:
             save_image(self.vision.frame_camera_stored, config["save_folder"])
             self.status_message.emit("Frame saved")
         else:
             logger.warning("No frame stored to save.")
+
+    def handle_r_key(self):
+        """Handle R key press to record cross position"""
+        x, y = self.cross_manager.cam_xy
+        self.cross_positions.append([x, y])
+        position_number = len(self.cross_positions)
+        msg = f"#{position_number} [{x}, {y}]"
+        logger.info(msg)
+        self.status_message.emit(msg)
 
     def shift_cross(self, dx=0, dy=0):
         """
@@ -560,88 +523,182 @@ class AppController(QObject):
         self.status_message.emit(log_msg)
         
         # Emit an updated frame with the new cross position
-        frame = self.get_frame_for_display(self.current_view_state)
+        frame = self._get_frame_for_display(self.current_view_state)
         self._prepare_and_emit_frame(frame)
         
-    def get_frame_for_display(self, view_state):
-        """Get appropriate frame based on view state."""
-        if view_state == "live":
-            return self.vision.frame_camera_live
-        elif view_state == "paused orig":
-            return self.vision.frame_camera_stored
-        elif view_state == "paused thres":
-            return self.vision.frame_threshold
-        elif view_state == "paused contours":
-            return self.vision.frame_contour
-        else:
-            logger.error(f"Bad view state: {view_state}")
-            return None
-
     def live_capture(self):
+        """Start live camera capture."""
         return self.vision.live_capture()
 
+    # ===== State Machine Methods =====
+    
+    def start_section_operation(self, section_id, mode):
+        """Start a section operation (insert or test)"""
+        if not self.robot.is_connected:
+            logger.warning("Robot not connected")
+            return False
+            
+        if self.current_operation_state != self.STATE_IDLE:
+            logger.error(f"Cannot start operation: current state is {self.current_operation_state}")
+            return False
+            
+        # Set operation parameters
+        self.operation_section_id = section_id
+        self.current_operation_mode = mode
+        
+        # Start the state machine
+        self.transition_to(self.STATE_MOVING_1)
+        return True
+    
+    def transition_to(self, new_state):
+        """Transition state machine to a new state"""
+        logger.info(f"Operation state transition: {self.current_operation_state} -> {new_state}")
+        self.current_operation_state = new_state
+        
+        if self.stopping:
+            pass
+            # TODO: handle stopping
+            
+
+        # Execute state entry action
+        if new_state == self.STATE_MOVING_1:
+            self._execute_move_1()
+        elif new_state == self.STATE_CAPTURING:
+            self._execute_capture()
+        elif new_state == self.STATE_MOVING_2:
+            self._execute_move_2()
+        elif new_state == self.STATE_QUEUEING:
+            self._execute_queue()
+        elif new_state == self.STATE_INSERTING:
+            self._execute_insert()
+        elif new_state == self.STATE_TESTING:
+            self._execute_test()
+        elif new_state == self.STATE_IDLE:
+            # Operation complete
+            self.current_operation_mode = self.MODE_IDLE
+            self.status_message.emit(f"{self.current_operation_mode.capitalize()} operation completed")
+    
+    def _execute_move_1(self):
+        """Execute the move to capture position"""
+        # Get section position
+        try:
+            x, y, z = self.get_section(self.operation_section_id)
+            self.robot._set_robot_op_state(self.MODE_MOVING)
+            self.robot.send(
+                cmd=f"move {x} {y} {z}",
+                expect=self.EXPECT_POSITION_REACHED,
+                timeout=5,
+                on_success=lambda: self.transition_to(self.STATE_CAPTURING)
+            )
+        except Exception as e:
+            logger.error(f"Move failed: {e}")
+            self.transition_to(self.STATE_IDLE)
+            
+    def _execute_capture(self):
+        """Execute the capture state"""
+        self.robot._set_robot_op_state(self.MODE_CAPTURE)
+        self.vision.stop_live_capture()
+        
+        # Try to capture and process image
+        for i in range(3):
+            if self.vision.capture_and_process():
+                if self.centroid_manager.is_centroid_updated_recently():
+                    self.transition_to(self.STATE_MOVING_2)
+                    return
+                else:
+                    logger.error("Centroid not updated recently")
+                    time.sleep(0.5) # TODO: blocking call, should be non-blocking
+            else:
+                logger.warning(f"Failed to capture image, retrying... {i}")
+                time.sleep(0.5) # TODO: blocking call, should be non-blocking
+                
+        # Failed after retries
+        logger.error("Failed to capture after multiple attempts")
+        self.status_message.emit("Failed to capture image")
+        self.transition_to(self.STATE_IDLE)
+
+    def _execute_move_2(self):
+        """Execute the move to lowered Z position of capture position"""
+        # Get section position
+        try:
+            x, y, z = self.get_section(self.operation_section_id)
+            self.robot._set_robot_op_state(self.MODE_MOVING)
+            self.robot.send(
+                cmd=f"move {x} {y} {z-20}",
+                expect=self.EXPECT_POSITION_REACHED,
+                timeout=5,
+                on_success=lambda: self.transition_to(self.STATE_IDLE) \
+                    if self.current_operation_mode == self.MODE_CAPTURE \
+                    else self.transition_to(self.STATE_QUEUEING)
+            )
+        except Exception as e:
+            logger.error(f"Move failed: {e}")
+            self.transition_to(self.STATE_IDLE)
+
+    def _execute_queue(self):
+        """Execute the queue state"""
+        self.robot._set_robot_op_state(self.MODE_CAPTURE)
+        
+        # Get the actual centroid data
+        centroids = self.centroid_manager.robot_centroids
+        if not centroids:
+            logger.error("No centroids available for queue")
+            self.transition_to(self.STATE_IDLE)
+            return
+            
+        # Build the queue command with actual data
+        queue_cmd = "queue " + " ".join([f"{x} {y}" for x, y in centroids])
+        
+        logger.info("Queue: Start")
+        self.robot.send(
+            cmd=queue_cmd,
+            expect=self.EXPECT_QUEUE_SET,
+            timeout=10,
+            on_success=lambda: self.transition_to(
+                self.STATE_INSERTING if self.current_operation_mode == "insert" else self.STATE_TESTING
+            )
+        )
+            
+    def _execute_insert(self):
+        """Execute the insertion state"""
+        self.robot._set_robot_op_state(self.MODE_INSERT)
+        logger.info("Insertion: Start")
+        self.robot.send(
+            cmd="insert",
+            expect=self.EXPECT_INSERT_DONE,
+            timeout=60,  # Use a reasonable timeout based on queue size
+            on_success=lambda: self.transition_to(self.STATE_IDLE)
+        )
+        
+    def _execute_test(self):
+        """Execute the testing state"""
+        self.robot._set_robot_op_state(self.MODE_TEST)
+        logger.info("Testing: Start")
+        self.robot.send(
+            cmd="test",
+            expect=self.EXPECT_TEST_DONE,
+            timeout=60,
+            on_success=lambda: self.transition_to(self.STATE_IDLE)
+        )
+    
+    # ===== High-Level Operations =====
+    
+    def insert_section(self, section_id):
+        """Start insertion operation for given section"""
+        return self.start_section_operation(section_id, "insert")
+    
+    def test_section(self, section_id):
+        """Start test operation for given section"""
+        return self.start_section_operation(section_id, "test")
+    
+    def stop_insert(self):
+        """Stop the current robot operation"""
+        # Implementation...
+    
+    # ===== Lifecycle Methods =====
+    
     def close(self):
         """Clean up resources"""
         self.robot.close()
         self.vision.close()
 
-    def set_current_tab(self, tab_name):
-        """Set the current active tab."""
-        self.current_tab = tab_name
-        logger.info(f"Active tab changed to: {tab_name}")
-        
-        # If changing tabs, update frame timer state and live camera state
-        if self.current_view_state == "live":
-            if tab_name == "Engineer":
-                if not self.update_frame_timer.isActive():
-                    self.update_frame_timer.start(200)
-                # Enable live camera in Engineer tab with live view
-                self.vision.live_capture()
-            else:
-                if self.update_frame_timer.isActive():
-                    self.update_frame_timer.stop()
-                # Disable live camera in other tabs
-                self.vision.stop_live_capture()
-                # Emit a single frame for the current state
-                frame = self.get_frame_for_display(self.current_view_state)
-                self._prepare_and_emit_frame(frame)
-        else:
-            # For non-live states, always ensure live camera is stopped
-            self.vision.stop_live_capture()
-
-    def handle_r_key(self):
-        """Handle R key press to record cross position"""
-        x, y = self.cross_manager.cam_xy
-        self.cross_positions.append([x, y])
-        position_number = len(self.cross_positions)
-        msg = f"#{position_number} [{x}, {y}]"
-        logger.info(msg)
-        self.status_message.emit(msg)
-
-    def reconnect_camera(self):
-        """Manually reconnect the camera"""
-        self.status_message.emit("Reconnecting camera...")
-        
-        # Stop all camera operations
-        if self.update_frame_timer.isActive():
-            self.update_frame_timer.stop()
-        self.vision.stop_live_capture()
-        
-        # Perform reconnection
-        success = self.vision.camera.reconnect()
-        
-        # Resume previous state if successful
-        if success:
-            self.status_message.emit("Camera reconnected")
-            if self.current_view_state == "live":
-                self.update_frame_timer.start(200)
-                self.vision.live_capture()
-        else:
-            self.status_message.emit("Reconnection failed")
-            
-        return success
-
-    def on_camera_error(self, error_message):
-        """Handle camera error messages from the worker thread"""
-        logger.error(f"Camera error: {error_message}")
-        self.status_message.emit(error_message) 

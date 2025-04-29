@@ -51,7 +51,7 @@ class EngineerTabView(QWidget):
         self.ui_reconnect_button.clicked.connect(self.controller.reconnect_camera)
 
         self.ui_capture_button = QPushButton("Process Image", self)
-        self.ui_capture_button.clicked.connect(self.controller.update_frame)
+        self.ui_capture_button.clicked.connect(self.controller.capture_process_frame)
 
         self.ui_save_frame_button = QPushButton("Save Frame", self)
         self.ui_save_frame_button.clicked.connect(self.controller.save_current_frame)
@@ -64,7 +64,7 @@ class EngineerTabView(QWidget):
 
 
         self.ui_stop_button = QPushButton("Stop", self)
-        self.ui_stop_button.clicked.connect(self.controller.stop_insert)
+        self.ui_stop_button.clicked.connect(lambda: logger.warning("Stop button not implemented"))
 
         # Add engineer mode widgets
         self.button_layout.addWidget(self.ui_reconnect_button)

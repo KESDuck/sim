@@ -122,7 +122,7 @@ Process button (process_image):
     -> find centroids  
     -> filter centroids based on location and store [self.centroids]  
 
-update_frame:
+capture_process_frame:
 -> depends on state, shows different frame
 -> Overlay, draw cross and points on the image (draw_cross)
 -> Convert to QImage so it can be zoomed in and out
