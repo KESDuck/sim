@@ -1,12 +1,11 @@
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer  # type: ignore
 import yaml
-import functools
 import sys
 import os
 import time
 import logging
 from dataclasses import dataclass
-from typing import Optional, Callable, List
+from typing import Optional, Callable
 
 # Add the parent directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,76 +27,73 @@ class CommandExpectation:
 
 class RobotModel(QObject):
     """
-    Model that handles robot control with a simplified state machine.
-    Manages communication with the robot through a socket connection.
-    Maintains synchronization between app state and robot state.
+    The RobotModel class manages robot communication, state, and status updates via a socket connection.
 
-    TO AI Agent: no more offline mode, not to write any emit unless developer ask for it
+    Key responsibilities:
+    - Maintains and reconnects socket connections to the physical robot
+    - Sends commands and processes responses
+    - Manages robot states (e.g., IDLE, IMAGING, INSERTING) based on responses
+    - Tracks robot position (x, y, z, u) and queue status
+    - Handles command expectations with optional success and timeout callbacks
+    - Emits Qt signals for status, errors, and connection events
+    - Periodically polls robot status and checks for timeouts
+
+    The model uses a request-response pattern:
+    1. Commands are sent via the socket
+    2. Responses trigger state updates and signal emissions
+    3. Timeouts are checked every 100ms; custom handlers are called if provided, otherwise a warning is logged
+
+    Notes:
+    - TODO items (e.g., starting with DISCONNECT state) exist but are not yet implemented
     """
     
     # Robot states
-    IDLE = 0
-    IMAGING = 1
-    INSERTING = 2
-    
+    DISCONNECT = 0
+    IDLE = 1
+    BUSY = 2
+    EMERGENCY = 3
+
     # State names for logging
     STATE_NAMES = {
-        0: "IDLE",
-        1: "IMAGING",
-        2: "INSERTING",
-        3: "DISCONNECT",
-        4: "EMERGENCY"
-        # TODO: add disconnect state, and init with it
+        0: "DISCONNECT",
+        1: "IDLE",
+        2: "BUSY",
+        3: "EMERGENCY"
     }
 
     robot_connected = pyqtSignal()          # Emitted when connected
     robot_connection_error = pyqtSignal(str)
     robot_status = pyqtSignal(str)
-    robot_op_state_changed = pyqtSignal(int)
     error = pyqtSignal(str)
 
     def __init__(self, ip, port, timeout=5.0):
         super().__init__()
-        # Initialize state
-        # TODO: should start with disconnect state
-
-        # robot_op_state: state of the operation handled by the app
-        # robot_state: robot state from robot peroidic status update
-        self.robot_op_state = self.IDLE
-        self.robot_state = self.IDLE
-        self.is_connected = False
         self.ip = ip
         self.port = port
-        
-        # Position tracking
+        self.socket = RobotSocket(ip, port, timeout)
+
+        self.robot_state = self.DISCONNECT
+
+        # Status tracking
         self.robot_x = 0.0
         self.robot_y = 0.0
         self.robot_z = 0.0
         self.robot_u = 0.0
-        
-        # Queue tracking
         self.robot_queue_index = -1
         self.robot_queue_size = 0
         
-        # Create socket for I/O only
-        self.socket = RobotSocket(ip, port, timeout)
-        
         # Expectations management
-        self._expectations: List[CommandExpectation] = []
+        self._expectations = []  # List of CommandExpectation objects
         
         # Connect socket signals
         self.socket.connected.connect(self._on_connected)
         self.socket.connection_error.connect(self._on_connection_error)
         self.socket.response_received.connect(self._on_raw_response)
         
-        # Setup status polling timer
-        self.status_timer = QTimer()
-        self.status_timer.timeout.connect(lambda: self.socket.send_command("status"))
-        
         # Setup reconnect timer
         self.reconnect_timer = QTimer()
         self.reconnect_timer.timeout.connect(self._attempt_reconnect)
-        self.reconnect_timer.setInterval(5000) # Connect every 5s
+        self.reconnect_timer.setInterval(3*1000) # Connect every 3s
         
         # Setup timeout checker
         self.timeout_timer = QTimer()
@@ -107,36 +103,32 @@ class RobotModel(QObject):
         # Try initial connection
         self.connect_to_server()
     
-    def _attempt_reconnect(self):
-        """Attempt to reconnect to the robot if not connected."""
-        if not self.is_connected:
-            logger.info("Attempting to reconnect to robot...")
-            self.connect_to_server()
-    
     def connect_to_server(self):
         """Connect to the robot."""
         if self.socket.connect_to_server():
-            self.is_connected = True
-            # Start status polling
-            self.status_timer.start(1000)  # 1 second
             # Stop reconnect timer when connected
             self.reconnect_timer.stop()
             return True
         else:
-            self.is_connected = False
+            self.robot_state = self.DISCONNECT
             # Start reconnect timer if not already running
             if not self.reconnect_timer.isActive():
                 self.reconnect_timer.start()
             return False
-    
+
+    def _attempt_reconnect(self):
+        """Attempt to reconnect to the robot if not connected."""
+        if self.robot_state == self.DISCONNECT:
+            logger.info("Attempting to reconnect to robot...")
+            self.connect_to_server()
+
     def _on_connected(self):
         self.robot_connected.emit()
 
     def _on_connection_error(self, error_msg):
         """Handle connection error."""
-        # logger.error(f"Connection error: {error_msg}")
-        self.is_connected = False
-        self.status_timer.stop()
+        logger.error(f"Connection error: {error_msg}")
+        self.robot_state = self.DISCONNECT
         self.robot_connection_error.emit(error_msg)
         # Start reconnect timer if not already running
         if not self.reconnect_timer.isActive():
@@ -191,10 +183,10 @@ class RobotModel(QObject):
                     self.robot_queue_index = int(parts[5].strip())
                     self.robot_queue_size = int(parts[6].strip())
                     
-                    stat_emit_str = f'robot: {self.STATE_NAMES[self.robot_state]}, '
-                    stat_emit_str += f'{self.where()}, '
-                    stat_emit_str += f'{self.robot_queue_index}/{self.robot_queue_size}'
-                    self.robot_status.emit(stat_emit_str)
+                    stat_builder = f'robot: {self.STATE_NAMES[self.robot_state]}, '
+                    stat_builder += f'{self.where()}, '
+                    stat_builder += f'{self.robot_queue_index}/{self.robot_queue_size}'
+                    self.robot_status.emit(stat_builder)
                 except (ValueError, IndexError) as e:
                     logger.error(f"Error parsing status response: {e}")
             else:
@@ -213,136 +205,66 @@ class RobotModel(QObject):
         for expectation in self._expectations[:]:
             if current_time - expectation.start_time > expectation.timeout:
                 logger.error(f"Expectation timed out: {expectation.expected_response}")
+
                 self._expectations.remove(expectation)
                 
                 if expectation.on_timeout:
                     expectation.on_timeout()
                 else:
-                    self._on_timeout(expectation.expected_response)
-    
-    def _on_timeout(self, expected_response: str):
-        """Default timeout handler if no specific handler provided."""
-        logger.error(f"Command timed out waiting for {expected_response}")
-        self.error.emit(f"Timed out waiting for {expected_response}")
+                    logger.warning("No timeout handler")
         
-        # Update state based on which expectation timed out
-        if expected_response == "task position_reached" and self.robot_op_state == self.IMAGING:
-            self._set_robot_op_state(self.IDLE)
-        elif (expected_response == "task queue_set" or expected_response == "task queue_completed") and self.robot_op_state == self.INSERTING:
-            self._set_robot_op_state(self.IDLE)
-        
-    def _set_robot_op_state(self, state):
-        """Update the app state."""
-        if self.robot_op_state != state:
-            # old_state = self.STATE_NAMES[self.robot_op_state]
-            # new_state = self.STATE_NAMES[state]
-            # Only log state changes at debug level (remove INFO-level logging)
-            # logger.debug(f"App state changed from {old_state} to {new_state}")
-            self.robot_op_state = state
-            self.robot_op_state_changed.emit(state)
-        else:
-            # logger.debug(f"App state not changed: {self.STATE_NAMES[self.robot_op_state]}")
-            pass
-    
-    def process_section(self, section, capture_only=False):
+    def send(self, cmd, expect=None, timeout=5.0, on_success=None, on_timeout=None):
         """
-        High-level method to process a section - moves to position, captures image.
-        If capture_only is False, will also process and insert.
-
+        Send a command to the robot and set up an expectation for a response.
         
-        self._set_op_state(OpState.CAPTURING)
-self._add_expectation(
-    "task position_reached",
-    timeout=10,
-    on_success=self._queue_after_capture
-)
-self.socket.send_command(f"capture {x} {y} {z} {u}")
-
-def _queue_after_capture(self):
-    self._set_op_state(OpState.QUEUEING)
-    self._add_expectation(
-        "task queue_set",
-        timeout=3,
-        on_success=self._insert_after_queue
-    )
-    self.socket.send_command(self._make_queue_command())
-
-def _insert_after_queue(self):
-    self._set_op_state(OpState.INSERTING)
-    self._add_expectation(
-        "task queue_completed",
-        timeout=5*len(self.capture_positions),
-        on_success=lambda: self._set_op_state(OpState.IDLE)
-    )
-    self.socket.send_command(f"xqt DoInsertAll 1")
-
+        Args:
+            cmd (str): The command to send to the robot
+            expect (str, optional): Expected response from the robot
+            timeout (float, optional): Timeout in seconds for the expected response
+            on_success (callable, optional): Callback when expected response is received
+            on_timeout (callable, optional): Callback when timeout occurs
+            
+        Returns:
+            bool: True if command was sent successfully, False otherwise
         """
-        if not self.is_connected:
+        if self.robot_state == self.DISCONNECT:
             logger.error("Robot not connected")
             return False
-        
-        if self.robot_op_state != self.IDLE:
-            logger.error(f"Cannot process section: robot is not idle")
-            return False
-        
-        # TODO
-    
-
-    def stop(self):
-        """
-        Stop command - stop current operation.
-        State MOVING or INSERTING -> IDLE # TODO: better state transition, implement stopping state
-        """
-        if not self.is_connected:
-            logger.error("Robot not connected")
-            return False
-        
-        if self.robot_op_state != self.INSERTING:
-            logger.warning(f"robot_op_state is not inserting")
-                    
-        # Update state immediately to prevent further commands
-        self._set_robot_op_state(self.IDLE)
-
-        # When stop is sent, we no longer expect queue_completed
-        self._remove_expectation("task queue_completed") # TODO: remove all expectation
-
-        # Add expectation with callback
-        self._add_expectation(
-            expected_response="task queue_stopped",
-            timeout=2
-        )
-        
-        # Send command
-        success = self.socket.send_command("stop")
+            
+        # Send the command
+        success = self.socket.send_command(cmd)
         
         if not success:
-            logger.error("Failed to send stop command")
+            logger.error(f"Failed to send command: {cmd}")
+            return False
             
-        return success
+        # If we expect a response, set up the expectation
+        if expect:
+            self._add_expectation(
+                expected_response=expect,
+                timeout=timeout,
+                on_success=on_success,
+                on_timeout=on_timeout
+            )
+            
+        return True
     
     def close(self):
         """Close the connection to the robot."""
         logger.info("Closing robot connection")
-        self.status_timer.stop()
         self.reconnect_timer.stop()  # Stop reconnect timer
         self.timeout_timer.stop()    # Stop timeout checker
         self.socket.close()
-        self.is_connected = False
+        self.robot_state = self.DISCONNECT
 
     def where(self, simple=True) -> str:
-        """
-        Get the current robot position
-        TODO: receive position from socket
-        """
-        if simple:
-            return f"({self.robot_x:.1f}, {self.robot_y:.1f}, {self.robot_z:.1f}, {self.robot_u:.1f})"
-        else:
-            return f"x: {self.robot_x}, y: {self.robot_y}, z: {self.robot_z}, u: {self.robot_u}"
+        return "TO IMPLEMENT"
+
 
 if __name__ == "__main__":
     # connect to robot
     # Create QApplication and start event loop
-    from PyQt5.QtWidgets import QApplication
+    from PyQt5.QtWidgets import QApplication  # type: ignore
     import sys
     
     # Set logger level to INFO
@@ -356,14 +278,9 @@ if __name__ == "__main__":
     def test_robot_move():
         global counter
 
-        if counter % 2 == 0:
-            if robot.capture(100, 420, 0, 0):
-                counter += 1
-        elif counter % 2 == 1:
-            if robot.capture(-100, 420, 0, 0):
-                counter += 1
+        # TODO: test robot move
         
     move_timer.timeout.connect(test_robot_move)
-    move_timer.start(3000)  # Slower movement test, every 7 seconds
+    move_timer.start(3*1000)  # Slower movement test
     
     sys.exit(app.exec_())

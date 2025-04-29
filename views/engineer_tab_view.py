@@ -62,7 +62,6 @@ class EngineerTabView(QWidget):
         self.ui_move_to_capture_tmp = QPushButton("Sec 2", self)
         self.ui_move_to_capture_tmp.clicked.connect(lambda: self.controller.process_section(2))
 
-
         self.ui_stop_button = QPushButton("Stop", self)
         self.ui_stop_button.clicked.connect(lambda: logger.warning("Stop button not implemented"))
 

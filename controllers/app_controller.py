@@ -259,6 +259,7 @@ class AppController(QObject):
     EXPECT_QUEUE_SET = "QUEUE_SET"
     EXPECT_INSERT_DONE = "INSERT_DONE"
     EXPECT_TEST_DONE = "TEST_DONE"
+    EXPECT_STOPPED = "STOPPED"
 
     def __init__(self):
         super().__init__()
@@ -534,7 +535,7 @@ class AppController(QObject):
     
     def start_section_operation(self, section_id, mode):
         """Start a section operation (insert or test)"""
-        if not self.robot.is_connected:
+        if self.robot.robot_state == self.robot.DISCONNECT:
             logger.warning("Robot not connected")
             return False
             
@@ -543,6 +544,7 @@ class AppController(QObject):
             return False
             
         # Set operation parameters
+        logger.info(f"Starting mode: {mode}")
         self.operation_section_id = section_id
         self.current_operation_mode = mode
         
@@ -553,13 +555,14 @@ class AppController(QObject):
     def transition_to(self, new_state):
         """Transition state machine to a new state"""
         logger.info(f"Operation state transition: {self.current_operation_state} -> {new_state}")
+        
+        # If we're stopping, don't allow transitions to non-idle states
+        if hasattr(self, 'stopping') and self.stopping and new_state != self.STATE_IDLE:
+            logger.info("Stop requested, ignoring transition to non-idle state")
+            return
+            
         self.current_operation_state = new_state
         
-        if self.stopping:
-            pass
-            # TODO: handle stopping
-            
-
         # Execute state entry action
         if new_state == self.STATE_MOVING_1:
             self._execute_move_1()
@@ -576,19 +579,19 @@ class AppController(QObject):
         elif new_state == self.STATE_IDLE:
             # Operation complete
             self.current_operation_mode = self.MODE_IDLE
-            self.status_message.emit(f"{self.current_operation_mode.capitalize()} operation completed")
+            self.status_message.emit(f"Operation completed")
     
     def _execute_move_1(self):
         """Execute the move to capture position"""
         # Get section position
         try:
             x, y, z = self.get_section(self.operation_section_id)
-            self.robot._set_robot_op_state(self.MODE_MOVING)
             self.robot.send(
                 cmd=f"move {x} {y} {z}",
                 expect=self.EXPECT_POSITION_REACHED,
-                timeout=5,
-                on_success=lambda: self.transition_to(self.STATE_CAPTURING)
+                timeout=5*1000,
+                on_success=lambda: self.transition_to(self.STATE_CAPTURING),
+                on_timeout=lambda: self.transition_to(self.STATE_IDLE)
             )
         except Exception as e:
             logger.error(f"Move failed: {e}")
@@ -596,7 +599,6 @@ class AppController(QObject):
             
     def _execute_capture(self):
         """Execute the capture state"""
-        self.robot._set_robot_op_state(self.MODE_CAPTURE)
         self.vision.stop_live_capture()
         
         # Try to capture and process image
@@ -622,14 +624,14 @@ class AppController(QObject):
         # Get section position
         try:
             x, y, z = self.get_section(self.operation_section_id)
-            self.robot._set_robot_op_state(self.MODE_MOVING)
             self.robot.send(
                 cmd=f"move {x} {y} {z-20}",
                 expect=self.EXPECT_POSITION_REACHED,
-                timeout=5,
+                timeout=5*1000,
                 on_success=lambda: self.transition_to(self.STATE_IDLE) \
                     if self.current_operation_mode == self.MODE_CAPTURE \
-                    else self.transition_to(self.STATE_QUEUEING)
+                    else self.transition_to(self.STATE_QUEUEING),
+                on_timeout=lambda: self.transition_to(self.STATE_IDLE)
             )
         except Exception as e:
             logger.error(f"Move failed: {e}")
@@ -637,8 +639,6 @@ class AppController(QObject):
 
     def _execute_queue(self):
         """Execute the queue state"""
-        self.robot._set_robot_op_state(self.MODE_CAPTURE)
-        
         # Get the actual centroid data
         centroids = self.centroid_manager.robot_centroids
         if not centroids:
@@ -653,48 +653,64 @@ class AppController(QObject):
         self.robot.send(
             cmd=queue_cmd,
             expect=self.EXPECT_QUEUE_SET,
-            timeout=10,
+            timeout=3*1000,
             on_success=lambda: self.transition_to(
                 self.STATE_INSERTING if self.current_operation_mode == "insert" else self.STATE_TESTING
-            )
+            ),
+            on_timeout=lambda: self.transition_to(self.STATE_IDLE)
         )
-            
+
     def _execute_insert(self):
         """Execute the insertion state"""
-        self.robot._set_robot_op_state(self.MODE_INSERT)
         logger.info("Insertion: Start")
         self.robot.send(
             cmd="insert",
             expect=self.EXPECT_INSERT_DONE,
-            timeout=60,  # Use a reasonable timeout based on queue size
-            on_success=lambda: self.transition_to(self.STATE_IDLE)
+            timeout=60*1000,  # Use a reasonable timeout based on queue size
+            on_success=lambda: self.transition_to(self.STATE_IDLE),
+            on_timeout=lambda: self.transition_to(self.STATE_IDLE)
         )
-        
+
     def _execute_test(self):
         """Execute the testing state"""
-        self.robot._set_robot_op_state(self.MODE_TEST)
         logger.info("Testing: Start")
         self.robot.send(
             cmd="test",
             expect=self.EXPECT_TEST_DONE,
-            timeout=60,
-            on_success=lambda: self.transition_to(self.STATE_IDLE)
+            timeout=60*1000,
+            on_success=lambda: self.transition_to(self.STATE_IDLE),
+            on_timeout=lambda: self.transition_to(self.STATE_IDLE)
         )
     
     # ===== High-Level Operations =====
     
+    def capture_section(self, section_id):
+        """Start capture operation for given section"""
+        return self.start_section_operation(section_id, self.MODE_CAPTURE)
+    
     def insert_section(self, section_id):
         """Start insertion operation for given section"""
-        return self.start_section_operation(section_id, "insert")
+        return self.start_section_operation(section_id, self.MODE_INSERT)
     
     def test_section(self, section_id):
         """Start test operation for given section"""
-        return self.start_section_operation(section_id, "test")
+        return self.start_section_operation(section_id, self.MODE_TEST)
     
-    def stop_insert(self):
+    def change_speed(self, speed):
+        """Change the robot speed"""
+        logger.info(f"Changing robot speed to {speed}")
+        self.robot.send(cmd=f"speed {speed}")
+
+    def stop_all(self):
         """Stop the current robot operation"""
-        # Implementation...
-    
+        logger.info("Stopping robot operation")
+        self.robot.send(
+            cmd="stop",
+            expect=self.EXPECT_STOPPED,
+            timeout=2*1000,
+            on_success=lambda: self.transition_to(self.STATE_IDLE),
+            on_timeout=None # No transition on timeout
+        )
     # ===== Lifecycle Methods =====
     
     def close(self):
