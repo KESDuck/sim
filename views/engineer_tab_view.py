@@ -118,7 +118,7 @@ class EngineerTabView(QWidget):
     def update_status(self, message):
         """Update the status bar with a message."""
         self.status_bar.showMessage(message)
-        
+    
     def update_robot_status(self, message):
         """Update the robot status bar with a message."""
         self.robot_status_bar.showMessage(message)

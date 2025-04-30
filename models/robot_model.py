@@ -148,17 +148,6 @@ class RobotModel(QObject):
         self._expectations.append(expectation)
         logger.debug(f"🔔: {expected_response} (timeout: {timeout}s)")
 
-    def _remove_expectation(self, expected_response: str) -> None:
-        """Remove all expectations with the given expected response."""
-        before_count = len(self._expectations)
-        self._expectations = [
-            expectation for expectation in self._expectations
-            if expectation.expected_response != expected_response
-        ]
-        removed = before_count - len(self._expectations)
-        if removed > 0:
-            logger.debug(f"🔕: {expected_response}")
-
     def _on_raw_response(self, resp: str):
         """Process raw responses from the socket and handle expectations."""
         # Handle expectations
@@ -273,14 +262,23 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     robot = RobotModel("192.168.0.1", 8501)
 
-    counter = 0
-    move_timer = QTimer()
-    def test_robot_move():
-        global counter
+    points = [
+        (100, 420, 0),
+        (-100, 420, 0)
+    ]
 
-        # TODO: test robot move
-        
-    move_timer.timeout.connect(test_robot_move)
-    move_timer.start(3*1000)  # Slower movement test
+    class PointCycler:
+        def __init__(self):
+            self.current_point = 0
+
+        def move_to_next_point(self):
+            x, y, z = points[self.current_point]
+            robot.send(f"move {x} {y} {z}", expect="POSITION_REACHED", timeout=10.0, 
+                      on_success=self.move_to_next_point)
+            self.current_point = (self.current_point + 1) % len(points)
+
+    # Start the cycle
+    cycler = PointCycler()
+    cycler.move_to_next_point()
     
     sys.exit(app.exec_())

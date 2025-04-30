@@ -338,6 +338,7 @@ class AppController(QObject):
         
     def _on_robot_error(self, error_msg):
         """Handle robot connection error."""
+        logger.error(f"Robot error: {error_msg}")
         self.status_message.emit(f"Robot error: {error_msg}")
 
     def _on_robot_status(self, status_message):
@@ -628,9 +629,9 @@ class AppController(QObject):
                 cmd=f"move {x} {y} {z-20}",
                 expect=self.EXPECT_POSITION_REACHED,
                 timeout=5*1000,
-                on_success=lambda: self.transition_to(self.STATE_IDLE) \
-                    if self.current_operation_mode == self.MODE_CAPTURE \
-                    else self.transition_to(self.STATE_QUEUEING),
+                on_success=lambda: self.transition_to(
+                    self.STATE_IDLE if self.current_operation_mode == self.MODE_CAPTURE else self.STATE_QUEUEING
+                ),
                 on_timeout=lambda: self.transition_to(self.STATE_IDLE)
             )
         except Exception as e:
@@ -655,7 +656,7 @@ class AppController(QObject):
             expect=self.EXPECT_QUEUE_SET,
             timeout=3*1000,
             on_success=lambda: self.transition_to(
-                self.STATE_INSERTING if self.current_operation_mode == "insert" else self.STATE_TESTING
+                self.STATE_INSERTING if self.current_operation_mode == self.MODE_INSERT else self.STATE_TESTING
             ),
             on_timeout=lambda: self.transition_to(self.STATE_IDLE)
         )
