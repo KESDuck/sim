@@ -3,8 +3,7 @@
 '====================================================================
 
 ' Global variables for state machine
-Global Integer RobotMode    ' 0=INIT, 1=INSERT, 2=TEST, 3=MOVE
-Global Integer RobotState   ' 0=DISCONNECT, 1=IDLE, 2=BUSY, 3=EMERGENCY
+Global Integer RobotState   ' 0=DISCONNECTED, 1=IDLE, 2=MOVING, 3=INSERTING, 4=TESTING, 5=EMERGENCY
 Global Real RobotSpeed      ' Speed factor (1-100)
 Global Boolean StopRequested
 
@@ -27,30 +26,20 @@ Global Integer NumTokens
 '====================================================================
 ' State Management Functions
 '====================================================================
-Function SetRobotMode(ByVal mode As Integer)
-    RobotMode = mode
-    Select RobotMode
-        Case 0
-            Print "[SetRobotMode] Mode set to INIT"
-        Case 1
-            Print "[SetRobotMode] Mode set to INSERT"
-        Case 2
-            Print "[SetRobotMode] Mode set to TEST"
-        Case 3
-            Print "[SetRobotMode] Mode set to MOVE"
-    Send
-Fend
-
 Function SetRobotState(ByVal state As Integer)
     RobotState = state
     Select RobotState
         Case 0
-            Print "[SetRobotState] State set to DISCONNECT"
+            Print "[SetRobotState] State set to DISCONNECTED"
         Case 1
             Print "[SetRobotState] State set to IDLE"
         Case 2
-            Print "[SetRobotState] State set to BUSY"
+            Print "[SetRobotState] State set to MOVING"
         Case 3
+            Print "[SetRobotState] State set to INSERTING"
+        Case 4
+            Print "[SetRobotState] State set to TESTING"
+        Case 5
             Print "[SetRobotState] State set to EMERGENCY"
     Send
 Fend
@@ -67,12 +56,11 @@ Function Main
     Off ioFeeder
  
     ' Initialize variables
-    SetRobotMode 0      ' INIT mode
-    SetRobotState 1     ' IDLE state
-    RobotSpeed = 100   ' Default speed
+    SetRobotState 1      ' IDLE state
+    RobotSpeed = 100    ' Default speed
     QueueSize = 0
     CurrentIndex = 0
-    JumpHeight = 0    ' Default jump height
+    JumpHeight = 0     ' Default jump height
     NewMessage = False
     MessageReceived = False
     
@@ -90,7 +78,7 @@ Function NetworkManager
     SetNet #201, "192.168.0.1", 8501, CRLF
 
 Connect:
-    SetRobotState 0  ' DISCONNECT
+    SetRobotState 0  ' DISCONNECTED
     OpenNet #201 As Server
     WaitNet #201, 10  ' Wait for client connection (timeout)
     If TW Then Print "[NetworkManager] Connection Timeout. Retrying..."; GoTo Connect
@@ -128,7 +116,7 @@ Connect:
 ErrHandle:
     Print "[NetworkManager] ERROR: Error number ", Err, ". Error Message: ", ErrMsg$(Err)
     Print "[NetworkManager] Reconnecting..."
-    SetRobotState 0  ' DISCONNECT
+    SetRobotState 0  ' DISCONNECTED
     EResume Connect
 Fend
 
@@ -158,29 +146,25 @@ Function OperationProcessor
         ' Wait for signal that there's work to do
         WaitSig 10
         
-        ' Process operation based on mode
-        If RobotState = 1 Then
-            Print "[OperationProcessor] Starting operation in mode ", RobotMode
-            SetRobotState 2  ' BUSY
-
-            Select RobotMode
-                Case 3  ' MOVE mode
+        ' Process operation based on state
+        If RobotState = 1 Then  ' Only start if IDLE
+            Print "[OperationProcessor] Signal received"
+            
+            ' Check which operation was requested (set by ProcessReceivedMessage)
+            Select RobotState
+                Case 2  ' MOVING
                     Print "[OperationProcessor] Moving to position: (", MoveX, ", ", MoveY, ", ", MoveZ, ")"
                     Jump XY(MoveX, MoveY, MoveZ, CU(CurPos)) /L
                     SendResponse "POSITION_REACHED"
                     SendResponse "MOVE_DONE"
-                    SetRobotMode 0  ' Return to INIT mode
+                    SetRobotState 1  ' Return to IDLE
                 
-                Case 1  ' INSERT mode
+                Case 3  ' INSERTING
                     ' Process queue until it's empty or stopped
                     Do While CurrentIndex < QueueSize
-                        ' Extract coordinate from queue
-                        MoveX = Val(CoordinateQueue$(CurrentIndex, 0))
-                        MoveY = Val(CoordinateQueue$(CurrentIndex, 1))
-                        
                         Print "[OperationProcessor] Processing item ", CurrentIndex + 1, "/", QueueSize
                         
-                        DoInsertOperation(CurrentIndex)
+                        DoInsert(CurrentIndex)
                         
                         ' Increment index
                         CurrentIndex = CurrentIndex + 1
@@ -201,19 +185,15 @@ Function OperationProcessor
                         QueueSize = 0
                         CurrentIndex = 0
                         SendResponse "INSERT_DONE"
-                        SetRobotMode 0  ' Return to INIT mode
                     EndIf
+                    SetRobotState 1  ' Return to IDLE
                 
-                Case 2  ' TEST mode
+                Case 4  ' TESTING
                     ' Process queue until it's empty or stopped
                     Do While CurrentIndex < QueueSize
-                        ' Extract coordinate from queue
-                        MoveX = Val(CoordinateQueue$(CurrentIndex, 0))
-                        MoveY = Val(CoordinateQueue$(CurrentIndex, 1))
-                        
                         Print "[OperationProcessor] Processing item ", CurrentIndex + 1, "/", QueueSize
                         
-                        DoTestOperation(CurrentIndex)
+                        DoTest(CurrentIndex)
                         
                         ' Increment index
                         CurrentIndex = CurrentIndex + 1
@@ -234,11 +214,9 @@ Function OperationProcessor
                         QueueSize = 0
                         CurrentIndex = 0
                         SendResponse "TEST_DONE"
-                        SetRobotMode 0  ' Return to INIT mode
                     EndIf
+                    SetRobotState 1  ' Return to IDLE
             Send
-            
-            SetRobotState 1  ' IDLE
         EndIf
     Loop
 Fend
@@ -272,11 +250,11 @@ Function ProcessReceivedMessage
             Select cmd$
                 Case "move"
                     ' Format: move x y z
-                    If NumTokens = 4 And RobotState = 1 Then
+                    If NumTokens = 4 And RobotState = 1 Then  ' Only if IDLE
                         MoveX = Val(Tokens$(1))
                         MoveY = Val(Tokens$(2))
                         MoveZ = Val(Tokens$(3))
-                        SetRobotMode 3  ' MOVE mode
+                        SetRobotState 2  ' MOVING
                         Signal 10  ' Signal OperationProcessor to start working
                         SendResponse "MOVE_STARTED"
                     Else
@@ -285,7 +263,7 @@ Function ProcessReceivedMessage
                 
                 Case "queue"
                     ' Format: queue x1 y1 x2 y2 ... xN yN
-                    If RobotState = 1 And (NumTokens - 1) Mod 2 = 0 Then
+                    If RobotState = 1 And (NumTokens - 1) Mod 2 = 0 Then  ' Only if IDLE
                         QueueSize = (NumTokens - 1) / 2
                         If QueueSize > 500 Then QueueSize = 500  ' Limit to 500 points
                         
@@ -305,16 +283,16 @@ Function ProcessReceivedMessage
                     EndIf
                 
                 Case "insert"
-                    If RobotState = 1 Then
-                        SetRobotMode 1  ' INSERT mode
+                    If RobotState = 1 Then  ' Only if IDLE
+                        SetRobotState 3  ' INSERTING
                         Signal 10  ' Signal OperationProcessor to start working
                     Else
                         SendResponse "ERROR robot busy"
                     EndIf
                 
                 Case "test"
-                    If RobotState = 1 Then
-                        SetRobotMode 2  ' TEST mode
+                    If RobotState = 1 Then  ' Only if IDLE
+                        SetRobotState 4  ' TESTING
                         Pause
                         Signal 10  ' Signal OperationProcessor to start working
                     Else
@@ -322,7 +300,7 @@ Function ProcessReceivedMessage
                     EndIf
                 
                 Case "speed"
-                    If NumTokens = 2 And RobotState = 1 Then
+                    If NumTokens = 2 And RobotState = 1 Then  ' Only if IDLE
                         Real newSpeed
                         newSpeed = Val(Tokens$(1))
                         If newSpeed >= 1 And newSpeed <= 100 Then
@@ -354,24 +332,20 @@ Fend
 '====================================================================
 ' Operation Functions
 '====================================================================
-Function DoMoveTask
-    Print "[DoMoveTask] Moving to position: (", MoveX, ", ", MoveY, ", ", MoveZ, ")"
-    Jump XY(MoveX, MoveY, MoveZ, CU(CurPos)) /L
-    
-    SendResponse "POSITION_REACHED"
-    SetRobotState 1  ' IDLE
-Fend
+Function DoInsert(ByVal index As Integer)
+    MoveX = Val(CoordinateQueue$(index, 0))
+    MoveY = Val(CoordinateQueue$(index, 1))
+    Print "[DoInsert] Inserting at: (", MoveX, ", ", MoveY, ")"
 
-Function DoInsertOperation(ByVal index As Integer)
-    Print "[DoInsertOperation] Inserting at: (", MoveX, ", ", MoveY, ")"
-    
     ' Move to position
     ' Jump XY(MoveX, MoveY, MoveZ, CU(CurPos)) /L LimZ JumpHeight
 Fend
 
-Function DoTestOperation(ByVal index As Integer)
-    Print "[DoTestOperation] Testing at: (", MoveX, ", ", MoveY, ")"
-    
+Function DoTest(ByVal index As Integer)
+    MoveX = Val(CoordinateQueue$(index, 0))
+    MoveY = Val(CoordinateQueue$(index, 1))
+    Print "[DoTest] Testing at: (", MoveX, ", ", MoveY, ")"
+
     ' Move to position
     ' Jump XY(MoveX, MoveY, MoveZ, CU(CurPos)) /L LimZ JumpHeight
 Fend
