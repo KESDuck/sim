@@ -8,7 +8,7 @@ Global Real RobotSpeed      ' Speed factor (1-100)
 Global Boolean StopRequested
 
 ' Movement parameters
-Global Real MoveX, MoveY, MoveZ, MoveU
+Global Real MoveX, MoveY, MoveZ
 Global Real JumpHeight
 
 ' Queue management
@@ -24,7 +24,7 @@ Global String MessageToSend$
 Global Integer NumTokens
 
 '====================================================================
-' State Management Functions
+' State Management Function
 '====================================================================
 Function SetRobotState(ByVal state As Integer)
     RobotState = state
@@ -50,14 +50,14 @@ Function Main
     Motor On
     Power High
     SpeedFactor 10
-    Speed 100; Accel 50, 50
-    SpeedS 100; AccelS 50, 50
+    Speed 20; Accel 50, 50
+    SpeedS 20; AccelS 50, 50
     Off ioGripper
     Off ioFeeder
  
     ' Initialize variables
     SetRobotState 1      ' IDLE state
-    RobotSpeed = 100    ' Default speed
+    RobotSpeed = 20    ' Default speed
     QueueSize = 0
     CurrentIndex = 0
     JumpHeight = 0     ' Default jump height
@@ -121,108 +121,7 @@ ErrHandle:
 Fend
 
 '====================================================================
-' Task 2: StatusReporter – Periodically reports robot status
-'====================================================================
-Function StatusReporter
-    Do
-        SendMsg$ = "STATUS " + Str$(RobotState) + ", " + Str$(CX(CurPos)) + ", " + Str$(CY(CurPos)) + ", " + Str$(CZ(CurPos)) + ", " + Str$(CU(CurPos))
-
-        If QueueSize > 0 Then
-            SendMsg$ = SendMsg$ + ", " + Str$(CurrentIndex + 1) + ", " + Str$(QueueSize)
-        Else
-            SendMsg$ = SendMsg$ + ", 0, 0"
-        EndIf
-        
-        SendResponse SendMsg$
-        Wait 1  ' Report status every seconds
-    Loop
-Fend
-
-'====================================================================
-' Task 3: OperationProcessor – Handles all robot operations (move, test, insert)
-'====================================================================
-Function OperationProcessor
-    Do
-        ' Wait for signal that there's work to do
-        WaitSig 10
-        
-        ' Process operation based on state
-        If RobotState = 1 Then  ' Only start if IDLE
-            Print "[OperationProcessor] Signal received"
-            
-            ' Check which operation was requested (set by ProcessReceivedMessage)
-            Select RobotState
-                Case 2  ' MOVING
-                    Print "[OperationProcessor] Moving to position: (", MoveX, ", ", MoveY, ", ", MoveZ, ")"
-                    Jump XY(MoveX, MoveY, MoveZ, CU(CurPos)) /L
-                    SendResponse "POSITION_REACHED"
-                    SendResponse "MOVE_DONE"
-                    SetRobotState 1  ' Return to IDLE
-                
-                Case 3  ' INSERTING
-                    ' Process queue until it's empty or stopped
-                    Do While CurrentIndex < QueueSize
-                        Print "[OperationProcessor] Processing item ", CurrentIndex + 1, "/", QueueSize
-                        
-                        DoInsert(CurrentIndex)
-                        
-                        ' Increment index
-                        CurrentIndex = CurrentIndex + 1
-
-                        If StopRequested Then
-                            Print "[OperationProcessor] Stop requested"
-                            Exit Do
-                        EndIf
-                    Loop
-                    
-                    If StopRequested Then
-                        SendResponse "STOPPED"
-                    Else
-                        ' Queue is complete
-                        Print "[OperationProcessor] Queue completed"
-                        
-                        ' Reset queue
-                        QueueSize = 0
-                        CurrentIndex = 0
-                        SendResponse "INSERT_DONE"
-                    EndIf
-                    SetRobotState 1  ' Return to IDLE
-                
-                Case 4  ' TESTING
-                    ' Process queue until it's empty or stopped
-                    Do While CurrentIndex < QueueSize
-                        Print "[OperationProcessor] Processing item ", CurrentIndex + 1, "/", QueueSize
-                        
-                        DoTest(CurrentIndex)
-                        
-                        ' Increment index
-                        CurrentIndex = CurrentIndex + 1
-
-                        If StopRequested Then
-                            Print "[OperationProcessor] Stop requested"
-                            Exit Do
-                        EndIf
-                    Loop
-                    
-                    If StopRequested Then
-                        SendResponse "STOPPED"
-                    Else
-                        ' Queue is complete
-                        Print "[OperationProcessor] Queue completed"
-                        
-                        ' Reset queue
-                        QueueSize = 0
-                        CurrentIndex = 0
-                        SendResponse "TEST_DONE"
-                    EndIf
-                    SetRobotState 1  ' Return to IDLE
-            Send
-        EndIf
-    Loop
-Fend
-
-'====================================================================
-' Helper Functions
+' NetworkManager Functions
 '====================================================================
 Function SendResponse(ByVal message$ As String)
     ' Wait if there's already a message waiting to be sent
@@ -249,37 +148,39 @@ Function ProcessReceivedMessage
             
             Select cmd$
                 Case "move"
-                    ' Format: move x y z
-                    If NumTokens = 4 And RobotState = 1 Then  ' Only if IDLE
-                        MoveX = Val(Tokens$(1))
-                        MoveY = Val(Tokens$(2))
-                        MoveZ = Val(Tokens$(3))
-                        SetRobotState 2  ' MOVING
-                        Signal 10  ' Signal OperationProcessor to start working
-                        SendResponse "MOVE_STARTED"
+                    If RobotState = 1 Then  ' Only if IDLE
+                        ' Format: move x y z
+                        If NumTokens = 4 Then  ' Only if IDLE
+                            MoveX = Val(Tokens$(1))
+                            MoveY = Val(Tokens$(2))
+                            MoveZ = Val(Tokens$(3))
+                            SetRobotState 2  ' MOVING
+                            Signal 10  ' Signal OperationProcessor to start working
+                        Else
+                            Print "ERROR bad NumTokens"
+                        EndIf
                     Else
-                        SendResponse "ERROR move failed"
+                        Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
                     EndIf
                 
                 Case "queue"
+                    ClearQueue
                     ' Format: queue x1 y1 x2 y2 ... xN yN
                     If RobotState = 1 And (NumTokens - 1) Mod 2 = 0 Then  ' Only if IDLE
                         QueueSize = (NumTokens - 1) / 2
-                        If QueueSize > 500 Then QueueSize = 500  ' Limit to 500 points
+                        If QueueSize > 300 Then QueueSize = 300  ' Limit to 300 points
                         
-                        Integer i, j
-                        j = 0
+                        Integer i
                         For i = 0 To QueueSize - 1
-                            CoordinateQueue$(i, 0) = Tokens$(j + 1)  ' X
-                            CoordinateQueue$(i, 1) = Tokens$(j + 2)  ' Y
-                            j = j + 2
+                            CoordinateQueue$(i, 0) = Tokens$(i*2 + 1)  ' X
+                            CoordinateQueue$(i, 1) = Tokens$(i*2 + 2)  ' Y
                         Next i
                         
                         CurrentIndex = 0
                         SendResponse "QUEUE_SET"
                         Print "[ProcessReceivedMessage] Queued ", QueueSize, " coordinates"
                     Else
-                        SendResponse "ERROR queue failed"
+                        Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
                     EndIf
                 
                 Case "insert"
@@ -287,7 +188,7 @@ Function ProcessReceivedMessage
                         SetRobotState 3  ' INSERTING
                         Signal 10  ' Signal OperationProcessor to start working
                     Else
-                        SendResponse "ERROR robot busy"
+                        Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
                     EndIf
                 
                 Case "test"
@@ -296,7 +197,7 @@ Function ProcessReceivedMessage
                         Pause
                         Signal 10  ' Signal OperationProcessor to start working
                     Else
-                        SendResponse "ERROR robot busy"
+                        Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
                     EndIf
                 
                 Case "speed"
@@ -309,45 +210,152 @@ Function ProcessReceivedMessage
                             SendResponse "SPEED_SET " + Str$(RobotSpeed)
                             Print "[ProcessReceivedMessage] Speed changed to ", RobotSpeed
                         Else
-                            SendResponse "ERROR invalid_speed_value"
+                            Print "ERROR invalid_speed_value"
                         EndIf
                     Else
-                        SendResponse "ERROR speed failed"
+                        Print "ERROR speed failed"
                     EndIf
                 
                 Case "stop"
                     DoStopTask
                 
                 Default
-                    SendResponse "ERROR unknown_command"
+                    Print "ERROR unknown_command"
                     Print "[ProcessReceivedMessage] Unknown Command: ", cmd$
             Send
         Else
-            SendResponse "ERROR empty_command"
+            Print "ERROR empty_command"
         EndIf
     EndIf
-    CheckReceivedMessage
+Fend
+
+'====================================================================
+' Task 2: StatusReporter – Periodically reports robot status
+'====================================================================
+Function StatusReporter
+    Do
+        SendMsg$ = "STATUS " + Str$(RobotState) + ", " + Str$(CX(CurPos)) + ", " + Str$(CY(CurPos)) + ", " + Str$(CZ(CurPos)) + ", " + Str$(CU(CurPos))
+
+        If QueueSize > 0 Then
+            SendMsg$ = SendMsg$ + ", " + Str$(CurrentIndex + 1) + ", " + Str$(QueueSize)
+        Else
+            SendMsg$ = SendMsg$ + ", 0, 0"
+        EndIf
+        
+        SendResponse SendMsg$
+        Wait 1  ' Report status every seconds
+    Loop
+Fend
+
+'====================================================================
+' Task 3: OperationProcessor – Handles all robot operations (move, test, insert)
+'====================================================================
+Function OperationProcessor
+    Do
+        ' Wait for signal that there's work to do
+        WaitSig 10
+        
+        ' Process operation based on state
+        Print "[OperationProcessor] Processing state ", RobotState
+        
+        Select RobotState
+            Case 2  ' MOVING
+                Print "[OperationProcessor] Moving to position: (", MoveX, ", ", MoveY, ", ", MoveZ, ")"
+                Jump XY(MoveX, MoveY, MoveZ, CU(CurPos)) /L
+                SendResponse "POSITION_REACHED"
+                SetRobotState 1  ' Return to IDLE
+            
+            Case 3  ' INSERTING
+                ' Process queue until it's empty or stopped
+                Do While CurrentIndex < QueueSize
+                    Print "[OperationProcessor] Processing item ", CurrentIndex + 1, "/", QueueSize
+                    
+                    DoInsert(CurrentIndex)
+                    
+                    ' Increment index
+                    CurrentIndex = CurrentIndex + 1
+
+                    If StopRequested Then
+                        Print "[OperationProcessor] Stop requested"
+                        Exit Do
+                    EndIf
+                Loop
+                
+                If StopRequested Then
+                    Print "robot stopped"
+                Else
+                    ' Queue is complete
+                    Print "[OperationProcessor] Queue completed"
+                    
+                    ' Reset queue
+                    QueueSize = 0
+                    CurrentIndex = 0
+                    SendResponse "INSERT_DONE"
+                EndIf
+                SetRobotState 1  ' Return to IDLE
+            
+            Case 4  ' TESTING
+                ' Process queue until it's empty or stopped
+                Do While CurrentIndex < QueueSize
+                    Print "[OperationProcessor] Processing item ", CurrentIndex + 1, "/", QueueSize
+                    
+                    DoTest(CurrentIndex)
+                    
+                    ' Increment index
+                    CurrentIndex = CurrentIndex + 1
+
+                    If StopRequested Then
+                        Print "[OperationProcessor] Stop requested"
+                        Exit Do
+                    EndIf
+                Loop
+                
+                If StopRequested Then
+                    Print "robot stopped"
+                Else
+                    ' Queue is complete
+                    Print "[OperationProcessor] Queue completed"
+                    
+                    ' Reset queue
+                    QueueSize = 0
+                    CurrentIndex = 0
+                    SendResponse "TEST_DONE"
+                EndIf
+                SetRobotState 1  ' Return to IDLE
+        Send
+    Loop
 Fend
 
 '====================================================================
 ' Operation Functions
 '====================================================================
 Function DoInsert(ByVal index As Integer)
+    Pause
     MoveX = Val(CoordinateQueue$(index, 0))
     MoveY = Val(CoordinateQueue$(index, 1))
     Print "[DoInsert] Inserting at: (", MoveX, ", ", MoveY, ")"
 
-    ' Move to position
-    ' Jump XY(MoveX, MoveY, MoveZ, CU(CurPos)) /L LimZ JumpHeight
+    Jump pFeederReceive -Y(12) LimZ -18
+    Go pFeederReceive
+    On ioGripper
+    Go pFeederReceive -Y(12)
+    On ioFeeder
+    Wait 0.1
+    Off ioFeeder
+    Jump XY(MoveX, MoveY, -150, 0) /L LimZ -18
+    Off ioGripper
+    ' Wait 0.2
+    ' Go XY(MoveX, MoveY, -150, 0) /L -Y(40)
 Fend
 
 Function DoTest(ByVal index As Integer)
+    Pause
     MoveX = Val(CoordinateQueue$(index, 0))
     MoveY = Val(CoordinateQueue$(index, 1))
     Print "[DoTest] Testing at: (", MoveX, ", ", MoveY, ")"
 
     ' Move to position
-    ' Jump XY(MoveX, MoveY, MoveZ, CU(CurPos)) /L LimZ JumpHeight
+    Jump XY(MoveX, MoveY, -100, 0) /L LimZ -50
 Fend
 
 Function DoStopTask
@@ -356,14 +364,21 @@ Function DoStopTask
     QueueSize = 0
     CurrentIndex = 0
     
-    ' Emergency stop to turn motor off and on if needed
+    ' Emergency stop turn motor off and on if needed
     
     SendResponse "STOPPED"
     Print "[DoStopTask] Robot stopped"
 Fend
 
-Function CheckReceivedMessage
-    If MessageReceived Then
-        ProcessReceivedMessage
-    EndIf
+Function ClearQueue
+    ' Clear queue data
+    QueueSize = 0
+    CurrentIndex = 0
+
+    Integer i
+    For i = 0 To 499
+        CoordinateQueue$(i, 0) = ""
+        CoordinateQueue$(i, 1) = ""
+        CoordinateQueue$(i, 2) = ""
+    Next i
 Fend
