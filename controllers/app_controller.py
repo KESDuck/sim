@@ -275,6 +275,8 @@ class AppController(QObject):
         
         # Connect signals
         self._connect_signals()
+
+        self.robot.connect_to_server()
     
     # ===== Initialization Methods =====
     

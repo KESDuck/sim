@@ -50,8 +50,8 @@ Function Main
     Motor On
     Power High
     SpeedFactor 10
-    Speed 20; Accel 50, 50
-    SpeedS 20; AccelS 50, 50
+    Speed 100; Accel 50, 50
+    SpeedS 100; AccelS 50, 50
     Off ioGripper
     Off ioFeeder
  

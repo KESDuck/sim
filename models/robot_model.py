@@ -99,9 +99,6 @@ class RobotModel(QObject):
         self.timeout_timer = QTimer()
         self.timeout_timer.timeout.connect(self._check_timeouts)
         self.timeout_timer.start(100)  # Check every 100ms
-        
-        # Try initial connection
-        self.connect_to_server()
     
     def connect_to_server(self):
         """Connect to the robot."""
@@ -123,6 +120,8 @@ class RobotModel(QObject):
             self.connect_to_server()
 
     def _on_connected(self):
+        """Handle successful connection."""
+        self.robot_state = self.IDLE
         self.robot_connected.emit()
 
     def _on_connection_error(self, error_msg):
@@ -261,6 +260,7 @@ if __name__ == "__main__":
     
     app = QApplication(sys.argv)
     robot = RobotModel("192.168.0.1", 8501)
+    robot.connect_to_server()
 
     points = [
         (100, 420, 0),
@@ -269,13 +269,22 @@ if __name__ == "__main__":
 
     class PointCycler:
         def __init__(self):
+            logger.info("PointCycler initialized")
             self.current_point = 0
+            robot.robot_connected.connect(self.move_to_next_point)
 
         def move_to_next_point(self):
+            logger.info("Moving to next point")
             x, y, z = points[self.current_point]
-            robot.send(f"move {x} {y} {z}", expect="POSITION_REACHED", timeout=10.0, 
-                      on_success=self.move_to_next_point)
+            success = robot.send(f"move {x} {y} {z}", expect="POSITION_REACHED", timeout=10.0, 
+                      on_success=self._on_move_success)
+            if not success:
+                logger.error("Failed to send move command")
+                return
+
+        def _on_move_success(self):
             self.current_point = (self.current_point + 1) % len(points)
+            self.move_to_next_point()
 
     # Start the cycle
     cycler = PointCycler()
