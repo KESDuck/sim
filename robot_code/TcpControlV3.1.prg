@@ -2,6 +2,9 @@
 ' TCP CONTROL V3.1
 '====================================================================
 
+' Global constants
+Global Integer MAX_QUEUE_SIZE
+
 ' Global variables for state machine
 Global Integer RobotState   ' 0=DISCONNECTED, 1=IDLE, 2=MOVING, 3=INSERTING, 4=TESTING, 5=EMERGENCY
 Global Real RobotSpeed      ' Speed factor (1-100)
@@ -12,7 +15,7 @@ Global Real MoveX, MoveY, MoveZ
 Global Real JumpHeight
 
 ' Queue management
-Global String CoordinateQueue$(500, 3)  ' Store up to 500 coordinates (X,Y,Z)
+Global String CoordinateQueue$(300, 2)  ' Store up to MAX_QUEUE_SIZE coordinates (X,Y)
 Global Integer QueueSize, CurrentIndex
 
 ' Message handling
@@ -55,6 +58,9 @@ Function Main
     Off ioGripper
     Off ioFeeder
  
+ 	' Set Global vars
+ 	MAX_QUEUE_SIZE = 300
+ 	
     ' Initialize variables
     SetRobotState 1      ' IDLE state
     RobotSpeed = 20    ' Default speed
@@ -66,7 +72,7 @@ Function Main
     
     ' Start our comms + status + operation tasks
     Xqt NetworkManager
-    Xqt StatusReporter
+    ' Xqt StatusReporter
     Xqt OperationProcessor
 Fend
 
@@ -125,6 +131,7 @@ Fend
 '====================================================================
 Function SendResponse(ByVal message$ As String)
     ' Wait if there's already a message waiting to be sent
+    
     Do While NewMessage
         Wait 0.01
     Loop
@@ -164,24 +171,50 @@ Function ProcessReceivedMessage
                     EndIf
                 
                 Case "queue"
-                    ClearQueue
+                    
                     ' Format: queue x1 y1 x2 y2 ... xN yN
+                    ' Max string length is 255
+                    Print "[ProcessReceivedMessage] Setting Queue"
                     If RobotState = 1 And (NumTokens - 1) Mod 2 = 0 Then  ' Only if IDLE
-                        QueueSize = (NumTokens - 1) / 2
-                        If QueueSize > 300 Then QueueSize = 300  ' Limit to 300 points
+                    
+                        ' Calculate how many coordinates we're adding
+                        Integer numNewPoints
+                        numNewPoints = (NumTokens - 1) / 2
                         
+                        ' Check if we have space in the queue
+                        If (QueueSize + numNewPoints) > MAX_QUEUE_SIZE Then
+                            numNewPoints = MAX_QUEUE_SIZE - QueueSize  ' Only add what we have room for
+                        EndIf
+                        
+                        ' Append new coordinates to the end of the queue
                         Integer i
-                        For i = 0 To QueueSize - 1
-                            CoordinateQueue$(i, 0) = Tokens$(i*2 + 1)  ' X
-                            CoordinateQueue$(i, 1) = Tokens$(i*2 + 2)  ' Y
+                        For i = 0 To numNewPoints - 1
+                            CoordinateQueue$(QueueSize + i, 0) = Tokens$(i * 2 + 1)  ' X
+                            CoordinateQueue$(QueueSize + i, 1) = Tokens$(i * 2 + 2)  ' Y
                         Next i
                         
-                        CurrentIndex = 0
-                        SendResponse "QUEUE_SET"
-                        Print "[ProcessReceivedMessage] Queued ", QueueSize, " coordinates"
+                        ' Update queue size
+                        QueueSize = QueueSize + numNewPoints
+                        
+                        SendResponse "QUEUE_APPENDED"
+                        Print "[ProcessReceivedMessage] Queued ", numNewPoints, " more coordinates. Total: ", QueueSize
+                        
+                        ' Print the entire queue for debugging
+                        Integer q
+                        For q = 0 To QueueSize - 1
+                            Print "[Queue] Index ", q, ": X=", CoordinateQueue$(q, 0), " Y=", CoordinateQueue$(q, 1)
+                        Next q
                     Else
                         Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
                     EndIf
+                   
+                Case "clearqueue"
+                	If RobotState = 1 Then
+                		ClearQueue
+                		SendResponse "QUEUE_CLEARED"
+                	Else
+                		Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
+                	EndIf
                 
                 Case "insert"
                     If RobotState = 1 Then  ' Only if IDLE
@@ -376,9 +409,10 @@ Function ClearQueue
     CurrentIndex = 0
 
     Integer i
-    For i = 0 To 499
+    For i = 0 To MAX_QUEUE_SIZE - 1
         CoordinateQueue$(i, 0) = ""
         CoordinateQueue$(i, 1) = ""
-        CoordinateQueue$(i, 2) = ""
     Next i
 Fend
+
+

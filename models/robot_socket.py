@@ -54,7 +54,7 @@ class RobotSocket(QObject):
             # Send command
             self.socket.write((command + "\r\n").encode())
             self.socket.flush()
-            logger.info(f"Sent command: {command}")
+            logger.info(f"📤: {command}")
             return True
         except Exception as e:
             logger.error(f"Error sending command: {e}")

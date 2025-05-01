@@ -152,6 +152,7 @@ class RobotModel(QObject):
         # Handle expectations
         for exp in list(self._expectations):
             if resp == exp.expected_response:
+                logger.debug(f"🔕: {exp.expected_response} (timeout: {exp.timeout}s)")
                 self._expectations.remove(exp)
                 if exp.on_success:
                     exp.on_success()  # Drive the state machine forward
@@ -255,39 +256,107 @@ if __name__ == "__main__":
     from PyQt5.QtWidgets import QApplication  # type: ignore
     import sys
     
-    # Set logger level to INFO
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
     
-    app = QApplication(sys.argv)
-    robot = RobotModel("192.168.0.1", 8501)
-    robot.connect_to_server()
 
-    points = [
-        (100, 420, 0),
-        (-100, 420, 0)
-    ]
-
-    class PointCycler:
-        def __init__(self):
-            logger.info("PointCycler initialized")
-            self.current_point = 0
-            robot.robot_connected.connect(self.move_to_next_point)
-
-        def move_to_next_point(self):
-            logger.info("Moving to next point")
-            x, y, z = points[self.current_point]
-            success = robot.send(f"move {x} {y} {z}", expect="POSITION_REACHED", timeout=10.0, 
-                      on_success=self._on_move_success)
-            if not success:
-                logger.error("Failed to send move command")
-                return
-
-        def _on_move_success(self):
-            self.current_point = (self.current_point + 1) % len(points)
-            self.move_to_next_point()
-
-    # Start the cycle
-    cycler = PointCycler()
-    cycler.move_to_next_point()
     
-    sys.exit(app.exec_())
+    TEST_MODE = "QUEUE"
+    # TEST_MODE = "MOVE_P2P"
+
+    if TEST_MODE == "MOVE_P2P":
+        app = QApplication(sys.argv)
+        robot = RobotModel("192.168.0.1", 8501)
+        robot.connect_to_server()
+
+        points = [
+            (100, 420, 0),
+            (-100, 420, 0)
+        ]
+
+        class PointCycler:
+            def __init__(self):
+                logger.info("PointCycler initialized")
+                self.current_point = 0
+                robot.robot_connected.connect(self.move_to_next_point)
+
+            def move_to_next_point(self):
+                x, y, z = points[self.current_point]
+                success = robot.send(f"move {x} {y} {z}", expect="POSITION_REACHED", timeout=10.0, 
+                        on_success=self._on_move_success)
+                if not success:
+                    logger.error("Failed to send move command")
+                    return
+
+            def _on_move_success(self):
+                self.current_point = (self.current_point + 1) % len(points)
+                self.move_to_next_point()
+
+        # Start the cycle
+        cycler = PointCycler()
+        cycler.move_to_next_point()
+        
+        sys.exit(app.exec_())
+        
+    elif TEST_MODE == "QUEUE":
+        app = QApplication(sys.argv)
+        robot = RobotModel("192.168.0.1", 8501)
+        robot.connect_to_server()
+        
+        class QueueTest:
+            EXPECT_QUEUE_APPENDED = "QUEUE_APPENDED"
+            EXPECT_QUEUE_CLEARED = "QUEUE_CLEARED"
+            
+            def __init__(self):
+                logger.info("QueueTest initialized")
+                self.batch_number = 0
+                self.total_batches = 5  # 5 batches of 10 coordinates = 50 total
+                robot.robot_connected.connect(self.start_queue_test)
+            
+            def start_queue_test(self):
+                logger.info("Starting queue test")
+                self.batch_number = 0
+                self.send_next_batch()
+            
+            def send_next_batch(self):
+                if self.batch_number >= self.total_batches:
+                    logger.info("All batches sent. Clearing queue.")
+                    self.clear_queue()
+                    return
+                
+                # Generate 10 coordinates for this batch
+                batch_coords = []
+                start_idx = self.batch_number * 10
+                for i in range(10):
+                    x = 100 + (start_idx + i) * 2  # Spread points out for visibility
+                    y = 200
+                    batch_coords.append((x, y))
+                
+                # Build the queue command with coordinates
+                queue_cmd = "queue " + " ".join([f"{x:.2f} {y:.2f}" for x, y in batch_coords])
+                
+                logger.info(f"Sending batch {self.batch_number + 1}/{self.total_batches}")
+                robot.send(
+                    cmd=queue_cmd,
+                    expect=self.EXPECT_QUEUE_APPENDED,
+                    timeout=3.0,
+                    on_success=lambda: self.on_batch_sent(),
+                    on_timeout=lambda: logger.error(f"Timeout sending batch {self.batch_number + 1}")
+                )
+            
+            def on_batch_sent(self):
+                logger.info(f"Batch {self.batch_number + 1} sent successfully")
+                self.batch_number += 1
+                self.send_next_batch()
+
+            def clear_queue(self):
+                robot.send(
+                    cmd="clearqueue",
+                    expect=self.EXPECT_QUEUE_CLEARED,
+                    timeout=3.0,
+                    on_success=lambda: logger.info("Queue successfully cleared")
+                )
+        
+        # Start the test
+        queue_test = QueueTest()
+        
+        sys.exit(app.exec_())
