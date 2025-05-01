@@ -1,7 +1,7 @@
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QGraphicsScene, QPushButton, QVBoxLayout, 
                            QHBoxLayout, QWidget, QComboBox, 
-                           QStatusBar)
+                           QStatusBar, QSpinBox, QLabel, QGroupBox)
 from PyQt5.QtGui import QImage, QPixmap
 import numpy as np
 
@@ -20,63 +20,98 @@ class EngineerTabView(QWidget):
         self.controller = controller
         self.setup_ui()
         
-        # # Initialize with proper state
-        # self.view_state_changed(self.ui_view_states.currentText())
+        # Initialize with proper state
+        self.view_state_changed(self.ui_view_states.currentText())
         
     def setup_ui(self):
         """Initialize the engineer tab interface."""
-        # Create main layout
-        self.layout = QVBoxLayout(self)
+        # Create main layout as vertical container
+        self.main_layout = QVBoxLayout(self)
         
-        # Graphics view for displaying images
+        # Create horizontal layout for content (graphics + controls)
+        self.layout = QHBoxLayout()
+        self.main_layout.addLayout(self.layout)
+        
+        # Graphics view for displaying images (left side)
         self.graphics_view = GraphicsView(self)
         self.scene = QGraphicsScene(self)
         self.graphics_view.setScene(self.scene)
         self.pixmap_item = None  # Placeholder for the image item
-        self.layout.addWidget(self.graphics_view)
+        self.layout.addWidget(self.graphics_view, 4)  # Give graphics view 4 parts of space
 
-        # Button layout for engineer controls
-        self.button_layout = QHBoxLayout()
-        self.layout.addLayout(self.button_layout)
+        # Controls panel (right side)
+        self.controls_panel = QWidget()
+        self.controls_layout = QVBoxLayout(self.controls_panel)
+        self.controls_panel.setFixedWidth(200)  # Set fixed width to make panel narrower
+        self.layout.addWidget(self.controls_panel, 1)  # Give controls panel 1 part of space
 
-        ##### UI States ####
+        # Selection spinner
+        self.selection_group = QWidget()
+        self.selection_layout = QHBoxLayout(self.selection_group)
+        self.selection_layout.addWidget(QLabel("Section:"))
+        self.ui_selection_dropdown = QComboBox()
+        self.ui_selection_dropdown.addItems(["0", "1", "2"])
+        self.ui_selection_dropdown.setCurrentText("1")  # Set default to 1
+        self.selection_layout.addWidget(self.ui_selection_dropdown)
+        self.controls_layout.addWidget(self.selection_group)
+
+        # View state dropdown
+        self.view_state_group = QWidget()
+        self.view_state_layout = QHBoxLayout(self.view_state_group)
         self.ui_view_states = QComboBox()
         self.ui_view_states.addItems(["live", "paused orig", "paused thres", "paused contours"])
         self.ui_view_states.currentTextChanged.connect(self.view_state_changed)
-        self.ui_view_states.setCurrentIndex(1)  # "paused orig" is index 1
+        self.view_state_layout.addWidget(self.ui_view_states)
+        self.controls_layout.addWidget(self.view_state_group)
 
-        ##### Control buttons ####
+        # Capture and process button
+        self.ui_capture_button = QPushButton("Capture and Process", self)
+        self.ui_capture_button.clicked.connect(self.handle_capture_button)
+        self.controls_layout.addWidget(self.ui_capture_button)
 
-        self.ui_reconnect_button = QPushButton("Reconnect Camera", self)
-        self.ui_reconnect_button.clicked.connect(self.controller.reconnect_camera)
-
-        self.ui_capture_button = QPushButton("Process Image", self)
-        self.ui_capture_button.clicked.connect(self.controller.capture_process_frame)
-
+        # Save frame button
         self.ui_save_frame_button = QPushButton("Save Frame", self)
         self.ui_save_frame_button.clicked.connect(self.controller.save_current_frame)
-        
-        self.ui_move_to_capture = QPushButton("Sec 1", self)
-        self.ui_move_to_capture.clicked.connect(lambda: self.controller.process_section(1))
+        self.controls_layout.addWidget(self.ui_save_frame_button)
 
-        self.ui_move_to_capture_tmp = QPushButton("Sec 2", self)
-        self.ui_move_to_capture_tmp.clicked.connect(lambda: self.controller.process_section(2))
+        # Test button
+        self.ui_test_button = QPushButton("Test", self)
+        self.ui_test_button.clicked.connect(self.handle_test_button)
+        self.controls_layout.addWidget(self.ui_test_button)
 
+        # Insert button
+        self.ui_insert_button = QPushButton("Insert", self)
+        self.ui_insert_button.clicked.connect(self.handle_insert_button)
+        self.controls_layout.addWidget(self.ui_insert_button)
+
+        # Stop button
         self.ui_stop_button = QPushButton("Stop", self)
-        self.ui_stop_button.clicked.connect(lambda: logger.warning("Stop button not implemented"))
+        self.ui_stop_button.clicked.connect(self.controller.stop_all)
+        self.controls_layout.addWidget(self.ui_stop_button)
 
-        # Add engineer mode widgets
-        self.button_layout.addWidget(self.ui_reconnect_button)
-        self.button_layout.addWidget(self.ui_capture_button)
-        self.button_layout.addWidget(self.ui_view_states)
-        self.button_layout.addWidget(self.ui_save_frame_button)
-        self.button_layout.addWidget(self.ui_move_to_capture)
-        self.button_layout.addWidget(self.ui_move_to_capture_tmp)
-        self.button_layout.addWidget(self.ui_stop_button)
+        # Speed control buttons
+        self.speed_group = QGroupBox("Speed Control")
+        self.speed_layout = QHBoxLayout(self.speed_group)
+        self.speed_layout.setContentsMargins(2, 2, 2, 2)  # Reduce margins (left, top, right, bottom)
+        self.speed_layout.setSpacing(2)  # Reduce spacing between buttons
+        
+        speeds = ["10%", "20%", "30%", "40%"]
+        self.speed_buttons = []
+        for speed in speeds:
+            btn = QPushButton(speed)
+            speed_value = int(speed.strip('%'))
+            btn.clicked.connect(lambda checked, s=speed_value: self.set_speed(s))
+            self.speed_layout.addWidget(btn)
+            self.speed_buttons.append(btn)
+            
+        self.controls_layout.addWidget(self.speed_group)
+        
+        # Add spacer to push controls to the top
+        self.controls_layout.addStretch()
         
         # Status bar layout
         self.status_layout = QHBoxLayout()
-        self.layout.addLayout(self.status_layout)
+        self.main_layout.addLayout(self.status_layout)
 
         # Status bar for application messages
         self.status_bar = QStatusBar()
@@ -88,6 +123,13 @@ class EngineerTabView(QWidget):
         
         # Connect to controller's robot status signal
         self.controller.robot_status_message.connect(self.update_robot_status)
+    
+    def set_speed(self, speed_percent):
+        """Set the speed percentage."""
+        logger.info(f"Setting speed to {speed_percent}%")
+        # Call controller's method to set speed if implemented
+
+        self.controller.change_speed(speed_percent)
     
     def update_display(self, frame, draw_cells=True):
         """Update the display with the provided frame."""
@@ -138,4 +180,19 @@ class EngineerTabView(QWidget):
         y = int(scene_pos.y())
         
         # Update cross position in controller using shift_cross with absolute positioning
-        self.controller.shift_cross(x, y) 
+        self.controller.shift_cross(x, y)
+    
+    def handle_test_button(self):
+        """Handle test button click by using the current section"""
+        section_id = int(self.ui_selection_dropdown.currentText())
+        self.controller.test_section(section_id)
+    
+    def handle_insert_button(self):
+        """Handle insert button click by using the current section"""
+        section_id = int(self.ui_selection_dropdown.currentText())
+        self.controller.insert_section(section_id)
+    
+    def handle_capture_button(self):
+        """Handle capture button click by using the current section"""
+        section_id = int(self.ui_selection_dropdown.currentText())
+        self.controller.capture_section(section_id) 

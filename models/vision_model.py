@@ -140,6 +140,10 @@ class VisionModel(QObject):
         # Ensure live worker is paused to avoid camera conflicts
         self.live_worker.pause()
         
+        # Add a small delay to ensure the worker thread has fully paused
+        # and isn't in the middle of retrieving a frame
+        time.sleep(0.1)
+        
         # Parameters for processing
         threshold_value = 135
         min_area = 2700  # 52x52

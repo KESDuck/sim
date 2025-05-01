@@ -256,7 +256,7 @@ class AppController(QObject):
 
     # expected responses
     EXPECT_POSITION_REACHED = "POSITION_REACHED"
-    EXPECT_QUEUE_SET = "QUEUE_SET"
+    EXPECT_QUEUE_APPENDED = "QUEUE_APPENDED"
     EXPECT_QUEUE_CLEARED = "QUEUE_CLEARED"
     EXPECT_INSERT_DONE = "INSERT_DONE"
     EXPECT_TEST_DONE = "TEST_DONE"
@@ -304,12 +304,7 @@ class AppController(QObject):
         
         # List to store cross positions
         self.cross_positions = []
-        
-        # QTimer to update frames
-        self.capture_process_frame_timer = QTimer(self)
-        self.capture_process_frame_timer.timeout.connect(self.capture_process_frame)
-        self.capture_process_frame_timer.start(200)
-        
+    
     def _init_state_machine(self):
         """Initialize state machine variables"""
         self.current_operation_state = self.STATE_IDLE
@@ -374,8 +369,11 @@ class AppController(QObject):
     def capture_process_frame(self):
         """Process frame when requested (e.g., via Process button)."""
         if self.current_view_state == "live":
+            # In live mode, we're already capturing frames through the live_worker thread
+            # Just ensure the live capture is running
             self.vision.live_capture()
         else:
+            # For non-live states, stop live capture and get a single frame
             self.vision.stop_live_capture()
             if self.vision.capture_and_process():
                 frame = self._get_frame_for_display(self.current_view_state)
@@ -435,19 +433,15 @@ class AppController(QObject):
         self.current_view_state = state
         logger.info(f"View state changed to: {state}")
         
-        # Adjust frame timer based on view state
+        # Adjust camera based on view state
         if state == "live" and self.current_tab == "Engineer":
-            # For live view, start the timer and use the background thread
-            if not self.capture_process_frame_timer.isActive():
-                self.capture_process_frame_timer.start(200)
+            # For live view, use the background thread
             self.vision.live_capture()
         else:
-            # For non-live states, stop the timer and live capture
-            if self.capture_process_frame_timer.isActive():
-                self.capture_process_frame_timer.stop()
+            # For non-live states, stop live capture
             self.vision.stop_live_capture()
             
-            # If we're switching from live to paused and we don't have a stored frame,
+            # Edge case: If we're switching from live to paused and we don't have a stored frame,
             # capture one first
             if previous_state == "live" and self.vision.frame_camera_stored is None:
                 logger.info("Capturing a frame before switching to paused state")
@@ -462,16 +456,12 @@ class AppController(QObject):
         self.current_tab = tab_name
         logger.info(f"Active tab changed to: {tab_name}")
         
-        # If changing tabs, update frame timer state and live camera state
+        # If changing tabs, update live camera state
         if self.current_view_state == "live":
             if tab_name == "Engineer":
-                if not self.capture_process_frame_timer.isActive():
-                    self.capture_process_frame_timer.start(200)
                 # Enable live camera in Engineer tab with live view
                 self.vision.live_capture()
             else:
-                if self.capture_process_frame_timer.isActive():
-                    self.capture_process_frame_timer.stop()
                 # Disable live camera in other tabs
                 self.vision.stop_live_capture()
                 # Emit a single frame for the current state
@@ -593,7 +583,7 @@ class AppController(QObject):
             self.robot.send(
                 cmd=f"move {x} {y} {z}",
                 expect=self.EXPECT_POSITION_REACHED,
-                timeout=5*1000,
+                timeout=5.0,
                 on_success=lambda: self.transition_to(self.STATE_CAPTURING),
                 on_timeout=lambda: self.transition_to(self.STATE_IDLE)
             )
@@ -631,7 +621,7 @@ class AppController(QObject):
             self.robot.send(
                 cmd=f"move {x} {y} {z-20}",
                 expect=self.EXPECT_POSITION_REACHED,
-                timeout=5*1000,
+                timeout=5.0,
                 on_success=lambda: self.transition_to(
                     self.STATE_IDLE if self.current_operation_mode == self.MODE_CAPTURE else self.STATE_QUEUEING
                 ),
@@ -642,25 +632,49 @@ class AppController(QObject):
             self.transition_to(self.STATE_IDLE)
 
     def _execute_queue(self):
-        """Execute the queue state"""
-        # Get the actual centroid data
         centroids = self.centroid_manager.robot_centroids
         if not centroids:
             logger.error("No centroids available for queue")
             self.transition_to(self.STATE_IDLE)
             return
-            
-        # Build the queue command with actual data
-        queue_cmd = "queue " + " ".join([f"{x} {y}" for x, y in centroids])
         
-        logger.info("Queue: Start")
+        # Clear any existing queue first
+        self.robot.send(
+            cmd="clearqueue",
+            expect=self.EXPECT_QUEUE_CLEARED,
+            timeout=1.0,
+            on_success=self._send_batched_centroids,
+            on_timeout=lambda: self.transition_to(self.STATE_IDLE)
+        )
+    
+    def _send_batched_centroids(self):
+        centroids = self.centroid_manager.robot_centroids
+        batch_size = 15  # Adjust as needed
+        
+        # Send first batch
+        self._send_centroid_batch(centroids, 0, batch_size)
+    
+    def _send_centroid_batch(self, centroids, start_idx, batch_size):
+        if start_idx >= len(centroids):
+            # All batches sent, move to next state
+
+            self.transition_to(
+                self.STATE_INSERTING if self.current_operation_mode == self.MODE_INSERT else self.STATE_TESTING
+            )
+            return
+        
+        end_idx = min(start_idx + batch_size, len(centroids))
+        batch = centroids[start_idx:end_idx]
+        
+        # Build the batch command
+        queue_cmd = "queue " + " ".join([f"{x:.2f} {y:.2f}" for x, y in batch])
+        
+        logger.info(f"Queue batch {start_idx}-{end_idx-1}: Start")
         self.robot.send(
             cmd=queue_cmd,
-            expect=self.EXPECT_QUEUE_SET,
-            timeout=3*1000,
-            on_success=lambda: self.transition_to(
-                self.STATE_INSERTING if self.current_operation_mode == self.MODE_INSERT else self.STATE_TESTING
-            ),
+            expect=self.EXPECT_QUEUE_APPENDED,
+            timeout=1.0,
+            on_success=lambda: self._send_centroid_batch(centroids, end_idx, batch_size),
             on_timeout=lambda: self.transition_to(self.STATE_IDLE)
         )
 
@@ -670,7 +684,7 @@ class AppController(QObject):
         self.robot.send(
             cmd="insert",
             expect=self.EXPECT_INSERT_DONE,
-            timeout=60*1000,  # Use a reasonable timeout based on queue size
+            timeout=60.0,  # Use a reasonable timeout based on queue size
             on_success=lambda: self.transition_to(self.STATE_IDLE),
             on_timeout=lambda: self.transition_to(self.STATE_IDLE)
         )
@@ -681,7 +695,7 @@ class AppController(QObject):
         self.robot.send(
             cmd="test",
             expect=self.EXPECT_TEST_DONE,
-            timeout=60*1000,
+            timeout=60.0,
             on_success=lambda: self.transition_to(self.STATE_IDLE),
             on_timeout=lambda: self.transition_to(self.STATE_IDLE)
         )
@@ -700,10 +714,27 @@ class AppController(QObject):
         """Start test operation for given section"""
         return self.start_section_operation(section_id, self.MODE_TEST)
     
+    def get_section(self, section_id):
+        """
+        Get the capture position for a given section_id.
+        
+        Args:
+            section_id: Index of the section to retrieve
+            
+        Returns:
+            Tuple of (x, y, z) coordinates
+        """
+        if section_id < 0 or section_id >= len(self.capture_positions):
+            raise ValueError(f"Invalid section_id: {section_id}. Must be between 0 and {len(self.capture_positions)-1}")
+        
+        # Return first 3 elements (x, y, z) from the capture position
+        return self.capture_positions[section_id][:3]
+    
     def change_speed(self, speed):
         """Change the robot speed"""
-        logger.info(f"Changing robot speed to {speed}")
-        self.robot.send(cmd=f"speed {speed}")
+        logger.info(f"TODO IMPLEMENT THIS: Changing robot speed to {speed}")
+
+        # self.robot.send(cmd=f"speed {speed}")
 
     def stop_all(self):
         """Stop the current robot operation"""
@@ -711,7 +742,7 @@ class AppController(QObject):
         self.robot.send(
             cmd="stop",
             expect=self.EXPECT_STOPPED,
-            timeout=2*1000,
+            timeout=2.0,
             on_success=lambda: self.transition_to(self.STATE_IDLE),
             on_timeout=None # No transition on timeout
         )

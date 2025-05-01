@@ -204,6 +204,7 @@ Function ProcessReceivedMessage
                         For q = 0 To QueueSize - 1
                             Print "[Queue] Index ", q, ": X=", CoordinateQueue$(q, 0), " Y=", CoordinateQueue$(q, 1)
                         Next q
+
                     Else
                         Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
                     EndIf
@@ -363,7 +364,7 @@ Fend
 ' Operation Functions
 '====================================================================
 Function DoInsert(ByVal index As Integer)
-    Pause
+    ' Pause
     MoveX = Val(CoordinateQueue$(index, 0))
     MoveY = Val(CoordinateQueue$(index, 1))
     Print "[DoInsert] Inserting at: (", MoveX, ", ", MoveY, ")"
@@ -382,13 +383,13 @@ Function DoInsert(ByVal index As Integer)
 Fend
 
 Function DoTest(ByVal index As Integer)
-    Pause
+    ' Pause
     MoveX = Val(CoordinateQueue$(index, 0))
     MoveY = Val(CoordinateQueue$(index, 1))
     Print "[DoTest] Testing at: (", MoveX, ", ", MoveY, ")"
 
     ' Move to position
-    Jump XY(MoveX, MoveY, -100, 0) /L LimZ -50
+    Jump XY(MoveX, MoveY, -100, 0) /L LimZ -19
 Fend
 
 Function DoStopTask
@@ -414,5 +415,6 @@ Function ClearQueue
         CoordinateQueue$(i, 1) = ""
     Next i
 Fend
+
 
 
