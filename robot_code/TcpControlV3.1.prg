@@ -11,7 +11,7 @@ Global Real RobotSpeed      ' Speed factor (1-100)
 Global Boolean StopRequested
 
 ' Movement parameters
-Global Real MoveX, MoveY, MoveZ
+Global Real MoveX, MoveY, MoveZ, MoveU
 Global Real JumpHeight
 
 ' Queue management
@@ -57,10 +57,9 @@ Function Main
     SpeedS 100; AccelS 50, 50
     Off ioGripper
     Off ioFeeder
- 
- 	' Set Global vars
- 	MAX_QUEUE_SIZE = 300
- 	
+    ' Set Global vars, since cannot be set outside of function
+    MAX_QUEUE_SIZE = 300
+    
     ' Initialize variables
     SetRobotState 1      ' IDLE state
     RobotSpeed = 20    ' Default speed
@@ -69,6 +68,7 @@ Function Main
     JumpHeight = 0     ' Default jump height
     NewMessage = False
     MessageReceived = False
+    StopRequested = False
     
     ' Start our comms + status + operation tasks
     Xqt NetworkManager
@@ -156,11 +156,12 @@ Function ProcessReceivedMessage
             Select cmd$
                 Case "move"
                     If RobotState = 1 Then  ' Only if IDLE
-                        ' Format: move x y z
-                        If NumTokens = 4 Then  ' Only if IDLE
+                        ' Format: move x y z u
+                        If NumTokens = 5 Then  ' Only if IDLE
                             MoveX = Val(Tokens$(1))
                             MoveY = Val(Tokens$(2))
                             MoveZ = Val(Tokens$(3))
+                            MoveU = Val(Tokens$(4))
                             SetRobotState 2  ' MOVING
                             Signal 10  ' Signal OperationProcessor to start working
                         Else
@@ -208,14 +209,14 @@ Function ProcessReceivedMessage
                     Else
                         Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
                     EndIf
-                   
+                  
                 Case "clearqueue"
-                	If RobotState = 1 Then
-                		ClearQueue
-                		SendResponse "QUEUE_CLEARED"
-                	Else
-                		Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
-                	EndIf
+                    If RobotState = 1 Then
+                        ClearQueue
+                        SendResponse "QUEUE_CLEARED"
+                    Else
+                        Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
+                    EndIf
                 
                 Case "insert"
                     If RobotState = 1 Then  ' Only if IDLE
@@ -294,10 +295,11 @@ Function OperationProcessor
         
         Select RobotState
             Case 2  ' MOVING
-                Print "[OperationProcessor] Moving to position: (", MoveX, ", ", MoveY, ", ", MoveZ, ")"
-                Jump XY(MoveX, MoveY, MoveZ, CU(CurPos)) /L
+                Print "[OperationProcessor] Moving to position: (", MoveX, ", ", MoveY, ", ", MoveZ, ", ", MoveU, ")"
+                Jump XY(MoveX, MoveY, MoveZ, MoveU) /L
                 SendResponse "POSITION_REACHED"
                 SetRobotState 1  ' Return to IDLE
+                StopRequested = False  ' Reset stop flag
             
             Case 3  ' INSERTING
                 ' Process queue until it's empty or stopped
@@ -327,6 +329,7 @@ Function OperationProcessor
                     SendResponse "INSERT_DONE"
                 EndIf
                 SetRobotState 1  ' Return to IDLE
+                StopRequested = False  ' Reset stop flag
             
             Case 4  ' TESTING
                 ' Process queue until it's empty or stopped
@@ -356,6 +359,7 @@ Function OperationProcessor
                     SendResponse "TEST_DONE"
                 EndIf
                 SetRobotState 1  ' Return to IDLE
+                StopRequested = False  ' Reset stop flag
         Send
     Loop
 Fend
@@ -415,6 +419,3 @@ Function ClearQueue
         CoordinateQueue$(i, 1) = ""
     Next i
 Fend
-
-
-

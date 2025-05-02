@@ -260,8 +260,9 @@ if __name__ == "__main__":
     
 
     
-    TEST_MODE = "QUEUE"
-    # TEST_MODE = "MOVE_P2P"
+    TEST_MODE = "MOVE_P2P"
+
+    
 
     if TEST_MODE == "MOVE_P2P":
         app = QApplication(sys.argv)
@@ -269,8 +270,8 @@ if __name__ == "__main__":
         robot.connect_to_server()
 
         points = [
-            (100, 420, 0),
-            (-100, 420, 0)
+            (100, 420, 0, 45),
+            (-100, 420, 0, -45)
         ]
 
         class PointCycler:
@@ -280,8 +281,8 @@ if __name__ == "__main__":
                 robot.robot_connected.connect(self.move_to_next_point)
 
             def move_to_next_point(self):
-                x, y, z = points[self.current_point]
-                success = robot.send(f"move {x} {y} {z}", expect="POSITION_REACHED", timeout=10.0, 
+                x, y, z, u = points[self.current_point]
+                success = robot.send(f"move {x} {y} {z} {u}", expect="POSITION_REACHED", timeout=10.0, 
                         on_success=self._on_move_success)
                 if not success:
                     logger.error("Failed to send move command")

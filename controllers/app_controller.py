@@ -579,9 +579,9 @@ class AppController(QObject):
         """Execute the move to capture position"""
         # Get section position
         try:
-            x, y, z = self.get_section(self.operation_section_id)
+            x, y, z, u = self.get_section(self.operation_section_id)
             self.robot.send(
-                cmd=f"move {x} {y} {z}",
+                cmd=f"move {x} {y} {z} {u}",
                 expect=self.EXPECT_POSITION_REACHED,
                 timeout=5.0,
                 on_success=lambda: self.transition_to(self.STATE_CAPTURING),
@@ -594,11 +594,13 @@ class AppController(QObject):
     def _execute_capture(self):
         """Execute the capture state"""
         self.vision.stop_live_capture()
+        time.sleep(1)
         
         # Try to capture and process image
         for i in range(3):
             if self.vision.capture_and_process():
                 if self.centroid_manager.is_centroid_updated_recently():
+                    time.sleep(1)
                     self.transition_to(self.STATE_MOVING_2)
                     return
                 else:
@@ -614,12 +616,12 @@ class AppController(QObject):
         self.transition_to(self.STATE_IDLE)
 
     def _execute_move_2(self):
-        """Execute the move to lowered Z position of capture position"""
+        """Move to lowered Z position of capture position"""
         # Get section position
         try:
-            x, y, z = self.get_section(self.operation_section_id)
+            x, y, z, u = self.get_section(self.operation_section_id)
             self.robot.send(
-                cmd=f"move {x} {y} {z-20}",
+                cmd=f"move {x} {y} {z-20} {u}",
                 expect=self.EXPECT_POSITION_REACHED,
                 timeout=5.0,
                 on_success=lambda: self.transition_to(
@@ -722,13 +724,13 @@ class AppController(QObject):
             section_id: Index of the section to retrieve
             
         Returns:
-            Tuple of (x, y, z) coordinates
+            Tuple of (x, y, z, u) coordinates
         """
         if section_id < 0 or section_id >= len(self.capture_positions):
             raise ValueError(f"Invalid section_id: {section_id}. Must be between 0 and {len(self.capture_positions)-1}")
         
-        # Return first 3 elements (x, y, z) from the capture position
-        return self.capture_positions[section_id][:3]
+        # Return all 4 elements (x, y, z, u) from the capture position
+        return self.capture_positions[section_id]
     
     def change_speed(self, speed):
         """Change the robot speed"""
