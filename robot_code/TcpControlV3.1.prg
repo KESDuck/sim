@@ -52,7 +52,7 @@ Function Main
     ' Initialize robot
     Motor On
     Power High
-    SpeedFactor 10
+    SpeedFactor 20
     Speed 100; Accel 50, 50
     SpeedS 100; AccelS 50, 50
     Off ioGripper
@@ -92,6 +92,13 @@ Connect:
     SetRobotState 1  ' IDLE
 
     Do
+        ' Check if client is still connected
+        If ChkNet(201) < 0 Then
+            Print "[NetworkManager] Client disconnected"
+            CloseNet #201
+            GoTo Connect
+        EndIf
+    
         ' RECEIVING: Check for incoming messages
         If ChkNet(201) > 0 Then
             Input #201, ReceivedMessage$
@@ -199,12 +206,6 @@ Function ProcessReceivedMessage
                         
                         SendResponse "QUEUE_APPENDED"
                         Print "[ProcessReceivedMessage] Queued ", numNewPoints, " more coordinates. Total: ", QueueSize
-                        
-                        ' Print the entire queue for debugging
-                        Integer q
-                        For q = 0 To QueueSize - 1
-                            Print "[Queue] Index ", q, ": X=", CoordinateQueue$(q, 0), " Y=", CoordinateQueue$(q, 1)
-                        Next q
 
                     Else
                         Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)

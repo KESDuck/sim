@@ -80,11 +80,12 @@ class CentroidManager:
         self.img_sorted_centroids = self.sort_centroids(centroids)
 
         # Filter centroids to keep only those within boundary
-        self.img_filtered_centroids = self.filter_centroids(self.img_sorted_centroids)
+        self.img_filtered_centroids = self.filter_boundary_centroids(self.img_sorted_centroids)
+        self.img_filtered_centroids = self.filter_mod5_centroids(self.img_filtered_centroids)
 
         # tmp
-        self.img_filtered_centroids = self.filter_test_centroids(self.img_filtered_centroids)
-        self.img_filtered_centroids = self.img_filtered_centroids[:10] if len(self.img_filtered_centroids) > 10 else self.img_filtered_centroids
+        # self.img_filtered_centroids = self.filter_test_centroids(self.img_filtered_centroids)
+        # self.img_filtered_centroids = self.img_filtered_centroids[:10] if len(self.img_filtered_centroids) > 10 else self.img_filtered_centroids
 
         # Convert to robot coordinates if needed
         self.robot_centroids = self.convert_to_robot_coords(self.img_filtered_centroids)
@@ -94,7 +95,7 @@ class CentroidManager:
         
         return self.robot_centroids
 
-    def filter_centroids(self, centroids):
+    def filter_boundary_centroids(self, centroids):
         """
         Filter centroids to keep only those within configured boundary.
         
@@ -116,6 +117,21 @@ class CentroidManager:
         # Filter centroids
         return [point for point in centroids 
                 if x_min < point[0] < x_max and y_min < point[1] < y_max]
+    
+    def filter_mod5_centroids(self, centroids):
+        """
+        Filter centroids to keep only those where the index mod 5 equals 0.
+        
+        Args:
+            centroids (list): List of (x, y) coordinates
+            
+        Returns:
+            list: Filtered list of centroids at indices divisible by 5
+        """
+        if not centroids:
+            return []
+            
+        return [point for i, point in enumerate(centroids) if i % 5 == 0]
     
     def filter_test_centroids(self, centroids):
         """
