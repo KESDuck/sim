@@ -47,7 +47,7 @@ class LiveCameraWorker(QThread):
                     self.consecutive_failures += 1
                     if self.consecutive_failures >= self.max_failures:
                         # Just report the error, don't try to reconnect automatically
-                        self.error_occurred.emit("Camera not responding - use reconnect button if needed")
+                        self.error_occurred.emit("Camera not responding - use reconnect button if needed. (Might need to restart the PC)")
                         
                         self.consecutive_failures = 0
                         # Add delay to prevent too many error messages
