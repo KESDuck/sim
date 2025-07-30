@@ -1,3 +1,14 @@
+"""
+TCP Echo Server
+===============
+
+A simple TCP server that echoes back any data it receives:
+- Listens on 127.0.0.1:60666 by default
+- Accepts multiple client connections (up to 5 queued)
+- Echoes back all received data to the client
+- Handles client disconnections and errors gracefully
+"""
+
 import socket
 
 def start_echo_server(host='127.0.0.1', port=60666):

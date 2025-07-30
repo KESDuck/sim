@@ -1,3 +1,13 @@
+"""
+Asyncio Task Monitoring Demo
+===========================
+
+Demonstrates how to monitor long-running async tasks in Python:
+- Creates an async task that runs for 5 seconds
+- Shows how to check task status while it's running
+- Prints periodic status updates every second until completion
+"""
+
 import asyncio
 
 async def long_running_task(task_id):

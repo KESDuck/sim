@@ -1,3 +1,15 @@
+"""
+Test TCP Server for Client Communication Testing
+===============================================
+
+A configurable test server to simulate different communication scenarios:
+- Normal: Sends 'ack' immediately, then 'taskdone' after 2 seconds
+- timeout_ack: Simulates timeout by not sending 'ack' response
+- timeout_taskdone: Sends 'ack' but never sends 'taskdone'
+- Useful for testing client timeout handling and retry logic
+- Supports multiple concurrent client connections
+"""
+
 import socket
 import threading
 import time

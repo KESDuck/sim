@@ -1,3 +1,15 @@
+"""
+PyQt TCP Socket Client Demo
+===========================
+
+Demonstrates PyQt TCP socket communication:
+- Connects to TCP server at 192.168.0.1:8501
+- Automatically sends "hello" message every 5 seconds
+- Handles connection events, data reception, and errors
+- Shows socket state changes and reconnection logic
+- Uses QTimer for periodic message sending
+"""
+
 from PyQt5.QtNetwork import QTcpSocket
 from PyQt5.QtCore import QObject, QTimer
 

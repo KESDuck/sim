@@ -1,3 +1,15 @@
+"""
+Network Device Status Monitor
+============================
+
+Real-time network connectivity monitor for multiple devices:
+- Monitors Robot, Camera, Macbook, and Dell devices on local network
+- Uses async ping to check connectivity status every second
+- Displays live status table with green/red indicators
+- Maintains history of all ping results
+- Press Ctrl+C to exit gracefully
+"""
+
 import asyncio
 from ping3 import ping
 from typing import List, Tuple, Dict

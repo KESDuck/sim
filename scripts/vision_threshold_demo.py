@@ -1,3 +1,16 @@
+"""
+OpenCV Image Thresholding Demo
+==============================
+
+Demonstrates different image thresholding techniques using OpenCV:
+- Binary threshold with fixed value (127)
+- Otsu's automatic threshold method
+- Adaptive Gaussian threshold
+- Adaptive Mean threshold
+- Displays all results side-by-side using matplotlib for comparison
+- Processes a grayscale image from 'save/2025-02-03 161551.jpg'
+"""
+
 import cv2 as cv
 import numpy as np
 import matplotlib.pyplot as plt
