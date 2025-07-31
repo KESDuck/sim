@@ -277,6 +277,9 @@ class AppController(QObject):
     EXPECT_INSERT_DONE = "INSERT_DONE"
     EXPECT_TEST_DONE = "TEST_DONE"
     EXPECT_STOPPED = "STOPPED"
+    
+    # batch processing constants
+    QUEUE_BATCH_SIZE = 15
 
     def __init__(self):
         super().__init__()
@@ -562,9 +565,15 @@ class AppController(QObject):
         self.transition_to(self.STATE_MOVING_1)
         return True
     
-    def transition_to(self, new_state):
-        """Transition state machine to a new state"""
-        logger.info(f"Operation state transition: {self.current_operation_state} -> {new_state}")
+    def transition_to(self, new_state, reason="success"):
+        """
+        Transition state machine to a new state
+        
+        Args:
+            new_state: The target state to transition to
+            reason: Reason for transition ("success", "timeout", "error", "failure")
+        """
+        logger.info(f"Operation state transition: {self.current_operation_state} -> {new_state} (reason: {reason})")
         
         # If we're stopping, don't allow transitions to non-idle states
         if hasattr(self, 'stopping') and self.stopping and new_state != self.STATE_IDLE:
@@ -587,9 +596,7 @@ class AppController(QObject):
         elif new_state == self.STATE_TESTING:
             self._execute_test()
         elif new_state == self.STATE_IDLE:
-            # Operation complete
             self.current_operation_mode = self.MODE_IDLE
-            self.status_message.emit(f"Operation completed")
     
     def _execute_move_1(self):
         """Execute the move to capture position"""
@@ -601,11 +608,11 @@ class AppController(QObject):
                 expect=self.EXPECT_POSITION_REACHED,
                 timeout=5.0,
                 on_success=lambda: self.transition_to(self.STATE_CAPTURING),
-                on_timeout=lambda: self.transition_to(self.STATE_IDLE)
+                on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
             )
         except Exception as e:
             logger.error(f"Move failed: {e}")
-            self.transition_to(self.STATE_IDLE)
+            self.transition_to(self.STATE_IDLE, "error")
             
     def _execute_capture(self):
         """Execute the capture state"""
@@ -629,7 +636,7 @@ class AppController(QObject):
         # Failed after retries
         logger.error("Failed to capture after multiple attempts")
         self.status_message.emit("Failed to capture image")
-        self.transition_to(self.STATE_IDLE)
+        self.transition_to(self.STATE_IDLE, "error")
 
     def _execute_move_2(self):
         """Move to lowered Z position of capture position"""
@@ -643,17 +650,17 @@ class AppController(QObject):
                 on_success=lambda: self.transition_to(
                     self.STATE_IDLE if self.current_operation_mode == self.MODE_CAPTURE else self.STATE_QUEUEING
                 ),
-                on_timeout=lambda: self.transition_to(self.STATE_IDLE)
+                on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
             )
         except Exception as e:
             logger.error(f"Move failed: {e}")
-            self.transition_to(self.STATE_IDLE)
+            self.transition_to(self.STATE_IDLE, "error")
 
     def _execute_queue(self):
         centroids = self.centroid_manager.robot_centroids
         if not centroids:
             logger.error("No centroids available for queue")
-            self.transition_to(self.STATE_IDLE)
+            self.transition_to(self.STATE_IDLE, "error")
             return
         
         # Clear any existing queue first
@@ -662,17 +669,16 @@ class AppController(QObject):
             expect=self.EXPECT_QUEUE_CLEARED,
             timeout=1.0,
             on_success=self._send_batched_centroids,
-            on_timeout=lambda: self.transition_to(self.STATE_IDLE)
+            on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
         )
     
     def _send_batched_centroids(self):
         centroids = self.centroid_manager.robot_centroids
-        batch_size = 15  # Adjust as needed
         
         # Send first batch
-        self._send_centroid_batch(centroids, 0, batch_size)
+        self._send_centroid_batch(centroids, 0)
     
-    def _send_centroid_batch(self, centroids, start_idx, batch_size):
+    def _send_centroid_batch(self, centroids, start_idx):
         if start_idx >= len(centroids):
             # All batches sent, move to next state
 
@@ -681,7 +687,7 @@ class AppController(QObject):
             )
             return
         
-        end_idx = min(start_idx + batch_size, len(centroids))
+        end_idx = min(start_idx + self.QUEUE_BATCH_SIZE, len(centroids))
         batch = centroids[start_idx:end_idx]
         
         # Build the batch command
@@ -692,8 +698,8 @@ class AppController(QObject):
             cmd=queue_cmd,
             expect=self.EXPECT_QUEUE_APPENDED,
             timeout=1.0,
-            on_success=lambda: self._send_centroid_batch(centroids, end_idx, batch_size),
-            on_timeout=lambda: self.transition_to(self.STATE_IDLE)
+            on_success=lambda: self._send_centroid_batch(centroids, end_idx),
+            on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
         )
 
     def _execute_insert(self):
@@ -704,7 +710,7 @@ class AppController(QObject):
             expect=self.EXPECT_INSERT_DONE,
             timeout=60.0,  # Use a reasonable timeout based on queue size
             on_success=lambda: self.transition_to(self.STATE_IDLE),
-            on_timeout=lambda: self.transition_to(self.STATE_IDLE)
+            on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
         )
 
     def _execute_test(self):
@@ -715,7 +721,7 @@ class AppController(QObject):
             expect=self.EXPECT_TEST_DONE,
             timeout=60.0,
             on_success=lambda: self.transition_to(self.STATE_IDLE),
-            on_timeout=lambda: self.transition_to(self.STATE_IDLE)
+            on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
         )
     
     # ===== High-Level Operations =====
@@ -761,7 +767,7 @@ class AppController(QObject):
             cmd="stop",
             expect=self.EXPECT_STOPPED,
             timeout=2.0,
-            on_success=lambda: self.transition_to(self.STATE_IDLE),
+            on_success=lambda: self.transition_to(self.STATE_IDLE, "stopped"),
             on_timeout=None # No transition on timeout
         )
     # ===== Lifecycle Methods =====

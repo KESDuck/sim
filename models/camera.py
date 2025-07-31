@@ -127,7 +127,7 @@ class PylonCamera(CameraBase):
         self.camera = None
         self.image_handler = None
         self.is_reconnecting = False
-        self.grab_timeout_ms = 500
+        self.grab_timeout_ms = 2000  # Increased for USB-C adapter latency
 
     def connect(self) -> bool:
         """Attempt to connect to the Pylon camera once is also used for reconnecting"""
@@ -160,7 +160,7 @@ class PylonCamera(CameraBase):
                 self.camera.UserSetLoad.Execute()
 
                 # setting exposure, read from pylon viewer
-                self.camera.ExposureTimeAbs.Value = 116000 # 116000
+                self.camera.ExposureTimeAbs.Value = 34510 # 116000
                 # self._print_camera_attributes()
 
                 # Configure format converter

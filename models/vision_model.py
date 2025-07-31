@@ -56,7 +56,7 @@ class LiveCameraWorker(QThread):
                 self.error_occurred.emit(f"Camera error: {str(e)}")
                 time.sleep(0.5)
                 
-            time.sleep(0.03)  # ~30fps with some overhead
+            time.sleep(1.0)  # 1fps frame rate
         
     def pause(self):
         """Pause the live feed"""
