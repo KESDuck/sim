@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 import time
 import yaml
 
@@ -15,6 +16,8 @@ class Centroid:
     y: float
     idx: int = 0
     group: int = 0
+    left: Optional['Centroid'] = None
+    right: Optional['Centroid'] = None
 
 
 class CentroidManager:
@@ -25,7 +28,7 @@ class CentroidManager:
         self.homo_matrix = homo_matrix
         self.img_raw_centroids = []
         self.img_sorted_centroids = []
-        self.img_filtered_centroids = []   # used by _prepare_and_emit_frame
+        self.img_filtered_centroids = [] # used by _prepare_and_emit_frame
         self.robot_centroids = []
         self.row_indices = [] # indices of first centroid in each row
 
@@ -175,9 +178,8 @@ class CentroidManager:
 
     def _sort_centroids(self, centroids):
         """
-        Sort centroids by grouping them into horizontal rows using graph-based clustering.
-        For each centroid, find nearby centroids within a bounding box and create connections.
-        Connected components form the rows.
+        Sort centroids by grouping them into horizontal rows using simplified graph-based clustering.
+        For each centroid, find the closest left and right neighbors within a bounding box.
 
         Args:
             centroids (list): List of Centroid objects or (x, y) tuples
@@ -192,21 +194,14 @@ class CentroidManager:
         if centroids and not isinstance(centroids[0], Centroid):
             centroids = [Centroid(x=x, y=y) for x, y in centroids]
             
-        # Clear previous row indices
+        # Clear previous row indices and reset connections
         self.row_indices = []
+        for centroid in centroids:
+            centroid.left = None
+            centroid.right = None
         
-        class Node:
-            def __init__(self, idx):
-                self.idx = idx
-                self.left = []
-                self.right = []
-
-            def __str__(self):
-                return f"Node {self.idx}: left={self.left}, right={self.right}"
-
-        # Step 1: Build adjacency graph
+        # Step 1: For each centroid, find closest left and right neighbors
         n = len(centroids)
-        adjacency = [Node(i) for i in range(n)]
         
         # Bounding box parameters
         x_range = 500  # x: from +0 to +500
@@ -214,46 +209,42 @@ class CentroidManager:
         
         for i in range(n):
             x1, y1 = centroids[i].x, centroids[i].y
-            for j in range(i + 1, n):
+            min_left_dist = float('inf')
+            min_right_dist = float('inf')
+            
+            for j in range(n):
+                if i == j:
+                    continue
+                    
                 x2, y2 = centroids[j].x, centroids[j].y
-                
-                # Check if centroid j is within bounding box of centroid i
                 dx = x2 - x1
                 dy = y2 - y1
+                distance = (dx**2 + dy**2)**0.5
 
-                if (0 <= dx <= x_range and -y_range <= dy <= y_range): # if j is to the right of i
-                    adjacency[i].right.append(j)
-                    adjacency[j].left.append(i)
-                elif (0 <= -dx <= x_range and -y_range <= dy <= y_range): # if j is to the left of i
-                    adjacency[i].left.append(j)
-                    adjacency[j].right.append(i)
+                # Check if j is to the right of i
+                if (0 <= dx <= x_range and -y_range <= dy <= y_range):
+                    if distance < min_right_dist:
+                        min_right_dist = distance
+                        centroids[i].right = centroids[j]
+                
+                # Check if j is to the left of i  
+                elif (0 <= -dx <= x_range and -y_range <= dy <= y_range):
+                    if distance < min_left_dist:
+                        min_left_dist = distance
+                        centroids[i].left = centroids[j]
 
-        # Step 2: Sort left and right connections by distance (closest to furthest)
-        for i in range(n):
-            x1, y1 = centroids[i].x, centroids[i].y
-            
-            # Sort left connections by distance
-            adjacency[i].left.sort(key=lambda j: ((centroids[j].x - x1)**2 + (centroids[j].y - y1)**2)**0.5)
-            
-            # Sort right connections by distance  
-            adjacency[i].right.sort(key=lambda j: ((centroids[j].x - x1)**2 + (centroids[j].y - y1)**2)**0.5)
-
-        # Step 3: Build rows
-        # Find leading nodes (nodes with empty left connections)
-        leading_nodes = []
-        for i in range(n):
-            if len(adjacency[i].left) == 0:
-                leading_nodes.append(i)
+        # Step 2: Find leading nodes (nodes with no left neighbor)
+        leading_indices = [i for i, centroid in enumerate(centroids) if centroid.left is None]
         
         # Sort leading nodes by y-coordinate (top to bottom)
-        leading_nodes.sort(key=lambda i: centroids[i].y)
+        leading_indices.sort(key=lambda i: centroids[i].y)
         
-        # Build rows by traversing from each leading node to the right
+        # Step 3: Build rows by traversing from each leading node to the right
         sorted_centroids = []
         visited = [False] * n
         current_idx_counter = 0
         
-        for group_num, leading_idx in enumerate(leading_nodes):
+        for group_num, leading_idx in enumerate(leading_indices):
             if visited[leading_idx]:
                 continue
                 
@@ -262,23 +253,26 @@ class CentroidManager:
             
             # Traverse the row from left to right
             current_idx = leading_idx
-            while current_idx is not None and not visited[current_idx]:
+            while current_idx is not None:
+                if visited[current_idx]:
+                    break
+                    
                 visited[current_idx] = True
-                centroid = centroids[current_idx]
+                current_centroid = centroids[current_idx]
                 # Create new Centroid with updated group and idx
-                sorted_centroid = Centroid(x=centroid.x, y=centroid.y, idx=current_idx_counter, group=group_num)
+                sorted_centroid = Centroid(x=current_centroid.x, y=current_centroid.y, idx=current_idx_counter, group=group_num)
                 sorted_centroids.append(sorted_centroid)
                 current_idx_counter += 1
                 
-                # Move to the closest right neighbor (first in sorted right list)
-                if len(adjacency[current_idx].right) > 0:
-                    # Find the first unvisited right neighbor
-                    next_idx = None
-                    for right_idx in adjacency[current_idx].right:
-                        if not visited[right_idx]:
-                            next_idx = right_idx
+                # Move to the closest right neighbor
+                next_centroid = current_centroid.right
+                if next_centroid is not None:
+                    # Find the index of the next centroid
+                    current_idx = None
+                    for i, c in enumerate(centroids):
+                        if c is next_centroid:
+                            current_idx = i
                             break
-                    current_idx = next_idx
                 else:
                     current_idx = None
         
