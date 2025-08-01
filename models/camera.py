@@ -281,17 +281,33 @@ class PylonCamera(CameraBase):
 class FileMockInterface(CameraBase):
     def __init__(self, path):
         self.path = path
-        print("##### MOCK CAMERA INITIALIZED #####")
+        logger.info("##### FILE CAMERA INITIALIZED #####")
 
     def connect(self) -> bool:
+        """Check if the file exists and is readable"""
+        if not os.path.exists(self.path):
+            logger.error(f"File does not exist: {self.path}")
+            return False
+        if not os.path.isfile(self.path):
+            logger.error(f"Path is not a file: {self.path}")
+            return False
         return True
 
     def get_frame(self):
-        """TODO: return none if cannot read"""
-        return cv.imread(self.path, cv.IMREAD_GRAYSCALE)
+        """Read and return the image file, return None if cannot read"""
+        try:
+            frame = cv.imread(self.path, cv.IMREAD_GRAYSCALE)
+            if frame is None:
+                logger.error(f"Failed to read image file: {self.path}")
+                return None
+            return frame
+        except Exception as e:
+            logger.error(f"Error reading file {self.path}: {e}")
+            return None
 
     def release(self):
-        pass
+        """No resources to release for file camera"""
+        logger.info("File camera released.")
 
 # Camera Handler Class
 class CameraHandler:
@@ -299,10 +315,11 @@ class CameraHandler:
     Delegates camera operations to the appropriate camera type (USB or Pylon).
     TODO: add camera calibration
     """
-    def __init__(self, cam_type="usb", cam_num=None):
+    def __init__(self, cam_type=None, cam_num=None, file_path=None):
         self.camera = None
-        self.cam_type = cam_type
+        self.cam_type = cam_type if cam_type is not None else config.get("cam_type", "usb")
         self.cam_num = cam_num if cam_num is not None else config.get("cam_num", 0)
+        self.file_path = file_path if file_path is not None else config.get("img_path", None)
 
     def initialize_camera(self) -> bool:
         """Initialize the appropriate camera type."""
@@ -312,6 +329,12 @@ class CameraHandler:
                 return self.camera.connect()
             elif self.cam_type == "pylon":
                 self.camera = PylonCamera()
+                return self.camera.connect()
+            elif self.cam_type == "file":
+                if not self.file_path:
+                    logger.error("File path is required for file camera type")
+                    return False
+                self.camera = FileMockInterface(self.file_path)
                 return self.camera.connect()
             else:
                 logger.error(f"Unsupported camera type: {self.cam_type}")
@@ -342,10 +365,13 @@ class CameraHandler:
         return self.initialize_camera()
 
 if __name__ == "__main__":
-    camera = CameraHandler(cam_type="file")
-    camera.initialize_camera()
-    test_frame = camera.get_frame()
-    if test_frame is not None:
-        print(f"Frame shape: {test_frame.shape}")
+    # Uses config.yml settings: cam_type="file", img_path="save/2025-02-10 122138.jpg"
+    camera = CameraHandler()
+    if camera.initialize_camera():
+        test_frame = camera.get_frame()
+        if test_frame is not None:
+            print(f"Frame shape: {test_frame.shape}")
+        else:
+            print("No frame captured")
     else:
-        print("No frame captured")
+        print("Failed to initialize camera")

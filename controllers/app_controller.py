@@ -5,6 +5,7 @@ import yaml
 
 from utils.logger_config import get_logger
 from utils.tools import map_image_to_robot, save_image, draw_cross, draw_points, add_border
+from utils.centroid import Centroid, CentroidManager
 from models.robot_model import RobotModel
 from models.vision_model import VisionModel
 
@@ -40,208 +41,7 @@ class CrossPositionManager:
             robot_x, robot_y = self.robot_xy
             return f"Camera: ({cam_x:.1f}, {cam_y:.1f}), Robot: ({robot_x:.2f}, {robot_y:.2f})"
 
-class CentroidManager:
-    """
-    Manages centroid processing operations: sorting, filtering, and converting.
-    """
-    def __init__(self, homo_matrix):
-        self.homo_matrix = homo_matrix
-        self.img_raw_centroids = []
-        self.img_sorted_centroids = []
-        self.img_filtered_centroids = []   # used by _prepare_and_emit_frame
-        self.robot_centroids = []
 
-        self.last_processed_time = None  # Timestamp when processing last completed
-
-    def process_centroids(self, centroids):
-        """
-        Process centroids for robot use: 
-        1. Sort centroids
-        2. Convert to robot coordinates if needed
-        3. Filter
-        
-        Args:
-            centroids (list): List of (x, y) coordinates
-            
-        Returns:
-            list: Processed centroids ready for robot use
-        """
-        if centroids is None or len(centroids) == 0:
-            self.img_raw_centroids = []
-            self.img_sorted_centroids = []
-            self.img_filtered_centroids = []   # used by _prepare_and_emit_frame
-            self.robot_centroids = []
-            return []
-        
-        # Store the raw centroids
-        self.img_raw_centroids = centroids
-            
-        # Sort centroids
-        self.img_sorted_centroids = self.sort_centroids(centroids)
-
-        # Filter centroids to keep only those within boundary
-        self.img_filtered_centroids = self.filter_boundary_centroids(self.img_sorted_centroids)
-        self.img_filtered_centroids = self.filter_mod5_centroids(self.img_filtered_centroids)
-
-        # tmp
-        # self.img_filtered_centroids = self.filter_test_centroids(self.img_filtered_centroids)
-        # self.img_filtered_centroids = self.img_filtered_centroids[:10] if len(self.img_filtered_centroids) > 10 else self.img_filtered_centroids
-
-        # Convert to robot coordinates if needed
-        self.robot_centroids = self.convert_to_robot_coords(self.img_filtered_centroids)
-                
-        # Store timestamp when processing completed
-        self.last_processed_time = time.time()
-        
-        return self.robot_centroids
-
-    def filter_boundary_centroids(self, centroids):
-        """
-        Filter centroids to keep only those within configured boundary.
-        
-        Args:
-            centroids (list): List of (x, y) coordinates
-            
-        Returns:
-            list: Filtered list of centroids within boundary
-        """
-        if not centroids:
-            return []
-        
-        # Get boundary values from config
-        x_min = config["boundary"]["x_min"]
-        x_max = config["boundary"]["x_max"]
-        y_min = config["boundary"]["y_min"]
-        y_max = config["boundary"]["y_max"]
-        
-        # Filter centroids
-        return [point for point in centroids 
-                if x_min < point[0] < x_max and y_min < point[1] < y_max]
-    
-    def filter_mod5_centroids(self, centroids):
-        """
-        Filter centroids to keep only those where the index mod 5 equals 0.
-        
-        Args:
-            centroids (list): List of (x, y) coordinates
-            
-        Returns:
-            list: Filtered list of centroids at indices divisible by 5
-        """
-        if not centroids:
-            return []
-            
-        return [point for i, point in enumerate(centroids) if i % 5 == 0]
-    
-    def filter_test_centroids(self, centroids):
-        """
-        Select 9 centroids evenly distributed in a 3x3 grid.
-        
-        Args:
-            centroids (list): List of (x, y) coordinates
-            
-        Returns:
-            list: List of 9 evenly distributed centroids
-        """
-        if not centroids or len(centroids) < 9:
-            return centroids  # Return all if less than 9
-        
-        # Get boundary values from config
-        x_min = config["boundary"]["x_min"]
-        x_max = config["boundary"]["x_max"]
-        y_min = config["boundary"]["y_min"]
-        y_max = config["boundary"]["y_max"]
-        
-        # Define 3x3 grid cells
-        x_step = (x_max - x_min) / 3
-        y_step = (y_max - y_min) / 3
-        
-        selected_centroids = []
-        
-        # For each grid cell, find closest centroid to cell center
-        for i in range(3):
-            for j in range(3):
-                # Calculate cell center
-                cell_center_x = x_min + (i + 0.5) * x_step
-                cell_center_y = y_min + (j + 0.5) * y_step
-                
-                # Find centroid closest to this cell center
-                min_distance = float('inf')
-                closest_centroid = None
-                
-                for centroid in centroids:
-                    # Check if centroid is in this cell
-                    if (x_min + i * x_step <= centroid[0] <= x_min + (i + 1) * x_step and
-                        y_min + j * y_step <= centroid[1] <= y_min + (j + 1) * y_step):
-                        
-                        # Calculate distance to cell center
-                        dist = ((centroid[0] - cell_center_x) ** 2 + 
-                                (centroid[1] - cell_center_y) ** 2) ** 0.5
-                        
-                        if dist < min_distance:
-                            min_distance = dist
-                            closest_centroid = centroid
-                
-                # If found a centroid in this cell, add it
-                if closest_centroid:
-                    selected_centroids.append(closest_centroid)
-        
-        return selected_centroids
-
-    def is_centroid_updated_recently(self):
-        """Check if centroid processing was done recently."""
-        if self.last_processed_time is None:
-            return False
-        return time.time() - self.last_processed_time < 1.0  # 1 second threshold
-
-    def sort_centroids(self, centroids, x_tolerance=30):
-        """
-        Sort centroids such that they are grouped by similar x-coordinates,
-        and within each group sorted by y-coordinates.
-
-        Args:
-            centroids (list): List of (x, y) centroid coordinates
-            x_tolerance (int, optional): Maximum difference in x-coordinates for grouping
-
-        Returns:
-            list: A flat list of centroids, sorted by grouped x and then y
-        """
-        if len(centroids) == 0:
-            return []
-            
-        # Step 1: Sort by x-coordinates first
-        sorted_centroids = sorted(centroids, key=lambda c: c[0])
-
-        # Step 2: Group centroids into clusters based on x_tolerance
-        groups = []
-        current_group = [sorted_centroids[0]]
-
-        for i in range(1, len(sorted_centroids)):
-            if abs(sorted_centroids[i][0] - current_group[-1][0]) <= x_tolerance:
-                current_group.append(sorted_centroids[i])
-            else:
-                groups.append(sorted(current_group, key=lambda c: c[1]))  # Sort group by y
-                current_group = [sorted_centroids[i]]
-
-        groups.append(sorted(current_group, key=lambda c: c[1]))  # Sort last group
-
-        # Step 3: Flatten list
-        return [c for group in groups for c in group]
-    
-    def convert_to_robot_coords(self, centroids):
-        """
-        Convert camera coordinates to robot coordinates using homography matrix.
-        
-        Args:
-            centroids (list): List of (x, y) camera coordinates
-            
-        Returns:
-            list: List of (x, y) robot coordinates
-        """
-        if not centroids:
-            return []
-            
-        return [map_image_to_robot(point, self.homo_matrix) for point in centroids]
 
 class AppController(QObject):
     """
@@ -412,7 +212,8 @@ class AppController(QObject):
                 frame, 
                 self.centroid_manager.img_filtered_centroids, 
                 -1,  # No current index 
-                size=10
+                size=10,
+                row_indices=self.centroid_manager.row_indices
             )
         
         # Draw cross on frame before emitting

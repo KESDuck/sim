@@ -2,6 +2,7 @@ import os
 import cv2 as cv
 import numpy as np
 from datetime import datetime
+from .centroid import Centroid
 
 def save_image(image, folder):
     """save image to file"""
@@ -40,15 +41,16 @@ def draw_cross(image, x, y, color=(0, 255, 0), size=30):
     
     return image
 
-def draw_points(image, points, current_index=None, size=5):
+def draw_points(image, points, current_index=None, size=5, row_indices=None):
     """
     Draw circles at the specified points on the image.
     
     Args:
         image: Image to draw on
-        points: List of (x,y) coordinates
+        points: List of Centroid objects or (x, y, group_num, idx) tuples for backward compatibility
         current_index: Not used anymore, kept for backward compatibility
         size: Size of circles to draw
+        row_indices: List of indices where new rows start (optional)
         
     Returns:
         Image with circles drawn
@@ -60,16 +62,36 @@ def draw_points(image, points, current_index=None, size=5):
     if len(image.shape) == 2 or image.shape[2] == 1:  # Grayscale image
         image = cv.cvtColor(image, cv.COLOR_GRAY2BGR)
 
-    for i in range(len(points)):
-        color = (0, 0, 0) # red, green, blue
-        if i < current_index:
-            color = (0, 125, 255)
-        elif i == current_index:
-            color = (0, 255, 0)
-        elif i > current_index:
-            color = (255, 0, 0)
+    # Define colors for different groups (BGR format)
+    group_colors = [
+        (0, 255, 0),    # Green
+        (255, 0, 0),    # Blue  
+        (0, 0, 255),    # Red
+        (255, 255, 0),  # Cyan
+        (255, 0, 255),  # Magenta
+        (0, 255, 255),  # Yellow
+        (128, 0, 128),  # Purple
+        (255, 165, 0),  # Orange
+    ]
 
-        cv.circle(image, points[i], size, color, -1)
+    for point in points:
+        # Handle both Centroid objects and tuple format for backward compatibility
+        if isinstance(point, Centroid):
+            x, y, group_num, idx = int(point.x), int(point.y), point.group, point.idx
+        else:
+            # Legacy tuple format (x, y, group_num, idx)
+            x, y, group_num, idx = point
+        
+        # Use group-based coloring
+        color = group_colors[group_num % len(group_colors)]
+
+        cv.circle(image, (x, y), size, color, -1)
+        
+        # Add index label next to the circle
+        label_text = str(idx)
+        label_position = (x + size + 5, y + 5)  # Offset from circle
+        cv.putText(image, label_text, label_position, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 1, cv.LINE_AA)
+        
     return image
 
 def map_image_to_robot(image_point, homo_matrix):
