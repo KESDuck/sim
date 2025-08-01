@@ -4,7 +4,7 @@ import time
 import yaml
 
 from utils.logger_config import get_logger
-from utils.tools import map_image_to_robot, save_image, draw_cross, draw_points, add_border
+from utils.tools import map_image_to_robot, save_image, draw_cross, draw_points, add_border, draw_boundary_box
 from utils.centroid import Centroid, CentroidManager
 from models.robot_model import RobotModel
 from models.vision_model import VisionModel
@@ -123,6 +123,9 @@ class AppController(QObject):
         
         # List to store cross positions
         self.cross_positions = []
+        
+        # Store last displayed frame for saving
+        self.last_displayed_frame = None
     
     def _init_state_machine(self):
         """Initialize state machine variables"""
@@ -206,6 +209,9 @@ class AppController(QObject):
         # Make a copy to avoid modifying the original
         frame = frame.copy()
         
+        # Draw boundary box from config
+        frame = draw_boundary_box(frame, config["boundary"])
+        
         # Add overlay with centroids if available and requested
         if draw_cells and self.current_view_state != "live" and self.centroid_manager.img_filtered_centroids is not None:
             frame = draw_points(
@@ -222,6 +228,9 @@ class AppController(QObject):
         
         # Add 1px border
         frame = add_border(frame, color=(0, 0, 0), thickness=1)
+        
+        # Store the prepared frame for saving
+        self.last_displayed_frame = frame.copy()
         
         # Emit the prepared frame
         self.frame_updated.emit(frame)
@@ -292,12 +301,12 @@ class AppController(QObject):
             self.vision.stop_live_capture()
 
     def save_current_frame(self):
-        """Save the current camera frame to disk."""
-        if self.vision.frame_camera_stored is not None and self.vision.frame_camera_stored.size > 0:
-            save_image(self.vision.frame_camera_stored, config["save_folder"])
+        """Save the current displayed frame (with overlays) to disk."""
+        if self.last_displayed_frame is not None and self.last_displayed_frame.size > 0:
+            save_image(self.last_displayed_frame, config["save_folder"])
             self.status_message.emit("Frame saved")
         else:
-            logger.warning("No frame stored to save.")
+            logger.warning("No frame available to save.")
 
     def handle_r_key(self):
         """Handle R key press to record cross position"""

@@ -65,7 +65,7 @@ def draw_points(image, points, current_index=None, size=5, row_indices=None):
     # Define colors for different groups (BGR format)
     group_colors = [
         (0, 255, 0),    # Green
-        (255, 0, 0),    # Blue  
+        (255, 0, 0),    # Blue
         (0, 0, 255),    # Red
         (255, 255, 0),  # Cyan
         (255, 0, 255),  # Magenta
@@ -146,3 +146,31 @@ def add_border(image, color=(0, 0, 0), thickness=1):
     cv.rectangle(img_with_border, (0, 0), (w-1, h-1), color, thickness)
     
     return img_with_border
+
+def draw_boundary_box(image, boundary_config):
+    """
+    Draw bounding box based on boundary configuration.
+    
+    Args:
+        image: The input image (numpy array)
+        boundary_config: Dictionary with x_min, x_max, y_min, y_max keys
+        
+    Returns:
+        Image with boundary box drawn in red
+    """
+    if boundary_config is None:
+        return image
+    
+    # Check if the image is grayscale and convert to BGR if needed
+    if len(image.shape) == 2 or image.shape[2] == 1:  # Grayscale image
+        image = cv.cvtColor(image, cv.COLOR_GRAY2BGR)
+    
+    x_min = int(boundary_config["x_min"])
+    x_max = int(boundary_config["x_max"])
+    y_min = int(boundary_config["y_min"])
+    y_max = int(boundary_config["y_max"])
+    
+    # Draw red rectangle (BGR format: red is (0, 0, 255)) with thickness 1
+    cv.rectangle(image, (x_min, y_min), (x_max, y_max), (255, 0, 0), 2)
+    
+    return image

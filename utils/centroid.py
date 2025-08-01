@@ -37,9 +37,10 @@ class CentroidManager:
     def process_centroids(self, centroids):
         """
         Process centroids for robot use: 
-        1. Sort centroids
-        2. Convert to robot coordinates if needed
-        3. Filter
+        1. Convert to Centroid objects if needed
+        2. Filter centroids within boundary
+        3. Sort centroids by rows
+        4. Convert to robot coordinates
         
         Args:
             centroids (list): List of (x, y) coordinates or Centroid objects
@@ -54,19 +55,19 @@ class CentroidManager:
             self.robot_centroids = []
             return []
         
-        # Store the raw centroids
-        self.img_raw_centroids = centroids
-            
-        # Sort centroids
-        self.img_sorted_centroids = self._sort_centroids(centroids)
+        # Store the raw centroids (convert to Centroid objects if needed)
+        if centroids and not isinstance(centroids[0], Centroid):
+            self.img_raw_centroids = [Centroid(x=x, y=y) for x, y in centroids]
+        else:
+            self.img_raw_centroids = centroids
 
         # Filter centroids to keep only those within boundary
-        self.img_filtered_centroids = self._filter_boundary_centroids(self.img_sorted_centroids)
-        # self.img_filtered_centroids = self._filter_mod5_centroids(self.img_filtered_centroids)
+        filtered_centroids = self._filter_boundary_centroids(self.img_raw_centroids)
+        # filtered_centroids = self._filter_mod5_centroids(filtered_centroids)
 
-        # tmp
-        # self.img_filtered_centroids = self._sfilter_test_centroids(self.img_filtered_centroids)
-        # self.img_filtered_centroids = self.img_filtered_centroids[:10] if len(self.img_filtered_centroids) > 10 else self.img_filtered_centroids
+        # Sort the filtered centroids
+        self.img_filtered_centroids = self._sort_centroids(filtered_centroids)
+        self.img_sorted_centroids = self.img_filtered_centroids  # Same as filtered for consistency
 
         # Convert to robot coordinates if needed
         self.robot_centroids = self._convert_to_robot_coords(self.img_filtered_centroids)
