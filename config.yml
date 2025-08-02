@@ -1,5 +1,6 @@
-cam_type: "file"  # pylon or usb or file
+cam_type: "pylon"  # pylon or usb or file
 cam_num: 0  # used if usb camera
+cam_ip: "192.168.0.2"  # Camera IP for direct connection (Thunderbolt adapter compatible)
 save_folder: "images/"
 img_path: "images/2025-04-17 151020.jpg" # used if file camera
 

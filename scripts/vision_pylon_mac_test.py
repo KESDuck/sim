@@ -293,6 +293,107 @@ def run_reliability_test(camera, duration_seconds=60):
     else:
         print(f"\n✅ GOOD: Success rate above 95% - acceptable performance")
 
+def enhanced_camera_discovery():
+    """Enhanced camera discovery with direct IP connection for Thunderbolt adapters"""
+    import os
+    
+    print("🔍 Enhanced Camera Discovery Process...")
+    
+    # Set Pylon environment variables for better GigE discovery
+    os.environ['PYLON_GIGE_HEARTBEAT_EXTENDED_TIMEOUT'] = '10000'
+    os.environ['PYLON_GIGE_DISCOVERY_EXTENDED_TIMEOUT'] = '10000'
+    os.environ['PYLON_GIGE_DISCOVERY_TIMEOUT'] = '10000'
+    
+    # Set specific camera IP (from network monitor)
+    camera_ip = "192.168.0.2"
+    os.environ['PYLON_GIGE_IPADDRESS'] = camera_ip
+    
+    tl_factory = pylon.TlFactory.GetInstance()
+    
+    # Try direct IP connection first (best for Thunderbolt adapters)
+    print(f"  Trying direct IP connection to {camera_ip}...")
+    try:
+        devices = connect_by_ip(tl_factory, camera_ip)
+        if len(devices) > 0:
+            print(f"  ✅ Found camera via direct IP connection")
+            return devices
+    except Exception as e:
+        print(f"  ❌ Direct IP connection failed: {e}")
+    
+    # Fallback to discovery methods
+    discovery_methods = [
+        ("Standard enumeration", lambda: tl_factory.EnumerateDevices()),
+        ("After 2s delay", lambda: (time.sleep(2), tl_factory.EnumerateDevices())[1]),
+        ("After 5s delay", lambda: (time.sleep(5), tl_factory.EnumerateDevices())[1]),
+        ("Force GigE TL", lambda: discover_via_gige_tl(tl_factory)),
+    ]
+    
+    for method_name, method_func in discovery_methods:
+        print(f"  Trying {method_name}...")
+        try:
+            devices = method_func()
+            if len(devices) > 0:
+                print(f"  ✅ Found {len(devices)} device(s) using {method_name}")
+                return devices
+            else:
+                print(f"  ❌ No devices found with {method_name}")
+        except Exception as e:
+            print(f"  ❌ Error with {method_name}: {e}")
+        
+        time.sleep(1)  # Brief pause between attempts
+    
+    print("  ❌ All discovery methods failed")
+    return []
+
+def connect_by_ip(tl_factory, camera_ip):
+    """Attempt to connect directly to camera by IP address"""
+    try:
+        # Method 1: Create device info with specific IP
+        device_info = pylon.CDeviceInfo()
+        device_info.SetIpAddress(camera_ip)
+        device_info.SetDeviceClass("BaslerGigE")
+        
+        print(f"    Creating device with IP {camera_ip}...")
+        device = tl_factory.CreateDevice(device_info)
+        return [device_info]  # Return the device info, not the device
+        
+    except Exception as e:
+        print(f"    Method 1 failed: {e}")
+        
+        # Method 2: Use InstantCamera directly with IP
+        try:
+            print(f"    Trying InstantCamera with specific IP...")
+            device_info = pylon.CDeviceInfo()
+            device_info.SetIpAddress(camera_ip)
+            camera = pylon.InstantCamera(tl_factory.CreateDevice(device_info))
+            if camera:
+                return [device_info]
+        except Exception as e:
+            print(f"    Method 2 failed: {e}")
+        
+        # Method 3: Force enumeration then filter
+        try:
+            print(f"    Trying enumeration with IP filter...")
+            devices = tl_factory.EnumerateDevices()
+            for device in devices:
+                if device.GetIpAddress() == camera_ip:
+                    return [device]
+        except Exception as e:
+            print(f"    Method 3 failed: {e}")
+    
+    return []
+
+def discover_via_gige_tl(tl_factory):
+    """Attempt discovery specifically through GigE transport layer"""
+    tl_infos = tl_factory.EnumerateTls()
+    for tl_info in tl_infos:
+        if "GigE" in tl_info.GetFriendlyName():
+            gige_tl = tl_factory.CreateTl(tl_info)
+            devices = []
+            gige_tl.EnumerateDevices(devices)  # Correct overload
+            return devices
+    return []
+
 def main():
     global running
     
@@ -305,17 +406,18 @@ def main():
     camera = None
     
     try:
-        # Create camera instance
-        tl_factory = pylon.TlFactory.GetInstance()
-        devices = tl_factory.EnumerateDevices()
+        # Enhanced camera discovery
+        devices = enhanced_camera_discovery()
         
         if len(devices) == 0:
             print("❌ No Pylon cameras found!")
-            print("\nTroubleshooting:")
-            print("1. Check camera power and network connection")
-            print("2. Verify PoE switch is working")
-            print("3. Try different USB-C adapter")
-            print("4. Check if camera works in Pylon Viewer")
+            print("\nTroubleshooting for Thunderbolt adapters:")
+            print("1. Ensure Pylon Viewer is completely closed")
+            print("2. Check camera power and PoE switch")
+            print("3. Verify camera IP is in same subnet as Thunderbolt interface")
+            print("4. Try: sudo python3 scripts/vision_pylon_mac_test.py")
+            print("5. Set static IP on Thunderbolt interface (e.g., 192.168.1.10)")
+            print("6. Run network diagnostic: python scripts/debug_thunderbolt_discovery.py")
             return
         
         print(f"Found {len(devices)} camera(s)")

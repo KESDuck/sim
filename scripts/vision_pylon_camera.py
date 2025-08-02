@@ -114,10 +114,44 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     
     try:
-        # Create a Pylon camera instance
-        camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
+        # Direct IP connection for Thunderbolt adapter compatibility
+        print("🔍 Connecting to camera using direct IP method...")
+        
+        # Set environment variables for better GigE performance
+        import os
+        os.environ['PYLON_GIGE_HEARTBEAT_EXTENDED_TIMEOUT'] = '10000'
+        os.environ['PYLON_GIGE_DISCOVERY_EXTENDED_TIMEOUT'] = '10000'
+        
+        # Create device with specific IP (from network monitor: 192.168.0.2)
+        camera_ip = "192.168.0.2"
+        print(f"  Connecting to camera at {camera_ip}...")
+        
+        # Method that worked in our test script
+        tl_factory = pylon.TlFactory.GetInstance()
+        
+        try:
+            # First try: Force enumeration after setting IP
+            os.environ['PYLON_GIGE_IPADDRESS'] = camera_ip
+            devices = tl_factory.EnumerateDevices()
+            
+            if len(devices) > 0:
+                print(f"  Found {len(devices)} device(s) via enumeration")
+                camera = pylon.InstantCamera(tl_factory.CreateDevice(devices[0]))
+            else:
+                # Second try: Direct device creation (method from working test)
+                print("  Enumeration failed, trying direct device creation...")
+                device_info = pylon.CDeviceInfo()
+                device_info.SetIpAddress(camera_ip)
+                device_info.SetDeviceClass("BaslerGigE")
+                device = tl_factory.CreateDevice(device_info)
+                camera = pylon.InstantCamera(device)
+                
+        except Exception as e:
+            print(f"  Connection attempt failed: {e}")
+            raise
 
         camera.Open()
+        print(f"  ✅ Camera opened: {camera.GetDeviceInfo().GetModelName()}")
         converter = pylon.ImageFormatConverter()
         converter.OutputPixelFormat = pylon.PixelType_RGB8packed
         converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned

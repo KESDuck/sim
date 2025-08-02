@@ -143,47 +143,82 @@ class PylonCamera(CameraBase):
             if self.camera:
                 self.release()
             
-            # Get device list and make sure there's at least one device
+            # Direct IP connection from config (works with Thunderbolt adapters)
+            camera_ip = config.get('cam_ip', '192.168.0.2')
+            logger.info(f"Attempting direct connection to camera at {camera_ip}")
+            
+            # Set environment variables for better GigE performance
+            import os
+            os.environ['PYLON_GIGE_HEARTBEAT_EXTENDED_TIMEOUT'] = '10000'
+            os.environ['PYLON_GIGE_DISCOVERY_EXTENDED_TIMEOUT'] = '10000'
+            
             tl_factory = pylon.TlFactory.GetInstance()
-            devices = tl_factory.EnumerateDevices()
-            if len(devices) == 0:
-                logger.error("No Pylon camera found")
-                time.sleep(1)
-            else:
-                # Create and open camera with the first device
-                self.camera = pylon.InstantCamera(tl_factory.CreateDevice(devices[0]))
-                self.camera.Open()
-                # Go here for available camera features: https://docs.baslerweb.com/features
-
-                # Load default settings
-                self.camera.UserSetSelector.Value = "Default"
-                self.camera.UserSetLoad.Execute()
-
-                # setting exposure, read from pylon viewer
-                self.camera.ExposureTimeAbs.Value = 34510 # 116000
-                # self._print_camera_attributes()
-
-                # Configure format converter
-                self.converter = pylon.ImageFormatConverter()
-                self.converter.OutputPixelFormat = pylon.PixelType_RGB8packed
-                self.converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
-
-                # Create and register image handler
-                self.image_handler = PylonImageHandler()
-                self.camera.RegisterImageEventHandler(self.image_handler, 
-                                                pylon.RegistrationMode_Append,
-                                                pylon.Cleanup_Delete)
-
-                # Device info
-                model_name = self.camera.GetDeviceInfo().GetModelName()
-                camera_ip = self.camera.GetDeviceInfo().GetIpAddress()
-                logger.info(f"##### Pylon camera connected: {model_name} ({camera_ip}) #####")
+            
+            try:
+                # First try: Force enumeration after setting IP
+                os.environ['PYLON_GIGE_IPADDRESS'] = camera_ip
+                devices = tl_factory.EnumerateDevices()
                 
-                # Start grabbing with latest image only strategy
-                self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+                if len(devices) > 0:
+                    logger.info(f"Found {len(devices)} device(s) via enumeration with IP filter")
+                    self.camera = pylon.InstantCamera(tl_factory.CreateDevice(devices[0]))
+                else:
+                    # Direct device creation: Bypasses GigE Vision discovery multicast packets
+                    # that fail on Thunderbolt adapters due to interface binding/routing issues.
+                    # Standard enumeration uses UDP multicast (239.192.1.0:3956) which doesn't
+                    # work reliably across Thunderbolt's PCIe-tunneled virtual Ethernet interfaces.
+                    # Direct IP connection uses unicast TCP, working regardless of interface type.
+                    logger.info("Enumeration failed, trying direct device creation...")
+                    device_info = pylon.CDeviceInfo()
+                    device_info.SetIpAddress(camera_ip)
+                    device_info.SetDeviceClass("BaslerGigE")
+                    device = tl_factory.CreateDevice(device_info)
+                    self.camera = pylon.InstantCamera(device)
+                    
+            except Exception as e:
+                logger.error(f"Direct connection attempt failed: {e}")
+                # Fallback to original enumeration for compatibility
+                logger.warning("Falling back to device enumeration...")
+                devices = tl_factory.EnumerateDevices()
+                if len(devices) == 0:
+                    logger.error("No Pylon camera found via any method")
+                    time.sleep(1)
+                    raise Exception("No camera found")
+                else:
+                    self.camera = pylon.InstantCamera(tl_factory.CreateDevice(devices[0]))
                 
-                # Start the acquisition loop in continuous mode
-                success = True
+            self.camera.Open()
+            # Go here for available camera features: https://docs.baslerweb.com/features
+
+            # Load default settings
+            self.camera.UserSetSelector.Value = "Default"
+            self.camera.UserSetLoad.Execute()
+
+            # setting exposure, read from pylon viewer
+            self.camera.ExposureTimeAbs.Value = 34510 # 116000
+            # self._print_camera_attributes()
+
+            # Configure format converter
+            self.converter = pylon.ImageFormatConverter()
+            self.converter.OutputPixelFormat = pylon.PixelType_RGB8packed
+            self.converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
+
+            # Create and register image handler
+            self.image_handler = PylonImageHandler()
+            self.camera.RegisterImageEventHandler(self.image_handler, 
+                                            pylon.RegistrationMode_Append,
+                                            pylon.Cleanup_Delete)
+
+            # Device info
+            model_name = self.camera.GetDeviceInfo().GetModelName()
+            connected_camera_ip = self.camera.GetDeviceInfo().GetIpAddress()
+            logger.info(f"##### Pylon camera connected: {model_name} ({connected_camera_ip}) #####")
+            
+            # Start grabbing with latest image only strategy
+            self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+            
+            # Start the acquisition loop in continuous mode
+            success = True
             
         except Exception as e:
             logger.error(f"Error connecting to Pylon camera: {e}")
