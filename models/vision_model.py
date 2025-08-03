@@ -1,12 +1,16 @@
 import cv2 as cv
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, QMutex
 import time
+import yaml
 
 from utils.logger_config import get_logger
 from models.camera import CameraHandler
 from utils.tools import determine_bound
 
 logger = get_logger("Vision")
+
+with open('config.yml', 'r') as file:
+    config = yaml.safe_load(file)
 
 class LiveCameraWorker(QThread):
     """
@@ -56,7 +60,7 @@ class LiveCameraWorker(QThread):
                 self.error_occurred.emit(f"Camera error: {str(e)}")
                 time.sleep(0.5)
                 
-            time.sleep(1.0)  # 1fps frame rate
+            time.sleep(1./config["vision"]["update_frequency"])  # configurable frame rate
         
     def pause(self):
         """Pause the live feed"""

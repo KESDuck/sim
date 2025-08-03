@@ -126,7 +126,6 @@ class RobotModel(QObject):
 
     def _on_connection_error(self, error_msg):
         """Handle connection error."""
-        logger.error(f"Connection error: {error_msg}")
         self.robot_state = self.DISCONNECT
         self.robot_connection_error.emit(error_msg)
         # Start reconnect timer if not already running

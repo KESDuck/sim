@@ -9,10 +9,15 @@ homo_matrix:
   # - [-0.000296751, -0.104393054, 95.692250864]
   # - [-0.105495202, -0.000222384, 539.705780924]
   # - [-0.000002936, -0.000000644, 1.000000000]
-  # Avg Error: 0.071, see raw data in find_homography.py
-    - [-0.000008697, -0.103557476, 93.0]
-    - [-0.104674253, -0.000046658, 596.0]
-    - [-0.000002858, 0.000000315, 1.000000000]
+  # Avg Error: 0.071
+    # - [-0.000008697, -0.103557476, 93.0]
+    # - [-0.104674253, -0.000046658, 596.0]
+    # - [-0.000002858, 0.000000315, 1.000000000]
+  # Avg Error: 0.075, see raw data in vision_homography_mapper.py
+  - [0.000134227, -0.105409095, 106.320576115]
+  - [-0.105741448, 0.000593871, 602.805691025]
+  - [-0.000000930, 0.000001675, 1.000000000]
+
 
 capture_positions:
   - [120, 330, 0, 90]
@@ -33,3 +38,10 @@ boundary:
   x_max: 2100
   y_min: 300
   y_max: 1600
+
+camera:
+  # 45010 for longfu calibration
+  exposure_time: 45010  # Camera exposure time in microseconds (was hard-coded)
+
+vision:
+  update_frequency: 10  # Frequency of frame updates in Hz

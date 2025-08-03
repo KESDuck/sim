@@ -20,7 +20,7 @@ def save_image(image, folder):
     cv.imwrite(path, image_bgr)
     print(f"Image saved to {path}")
 
-def draw_cross(image, x, y, color=(0, 255, 0), size=30):
+def draw_cross(image, x, y, color=(0, 255, 0), size=200):
     """Draw a cross marker on the image at the specified coordinates."""
     # Convert coordinates to integers
     x_int = int(x)
@@ -41,7 +41,7 @@ def draw_cross(image, x, y, color=(0, 255, 0), size=30):
     
     return image
 
-def draw_points(image, points, current_index=None, size=5, row_indices=None):
+def draw_points(image, points, current_index=None, size=3, row_indices=None):
     """
     Draw circles at the specified points on the image.
     
@@ -90,7 +90,7 @@ def draw_points(image, points, current_index=None, size=5, row_indices=None):
         # Add index label next to the circle
         label_text = str(idx)
         label_position = (x + size + 5, y + 5)  # Offset from circle
-        cv.putText(image, label_text, label_position, cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 1, cv.LINE_AA)
+        cv.putText(image, label_text, label_position, cv.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 1, cv.LINE_AA)
         
     return image
 

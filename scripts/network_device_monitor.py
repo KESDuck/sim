@@ -27,7 +27,7 @@ DEVICES = {
 
 async def check_ip(ip: str) -> Tuple[str, bool]:
     try:
-        response = await asyncio.to_thread(ping, ip, timeout=3)
+        response = await asyncio.to_thread(ping, ip, timeout=0.5)
         return ip, response is not None
     except:
         return ip, False

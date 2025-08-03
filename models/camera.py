@@ -195,7 +195,7 @@ class PylonCamera(CameraBase):
             self.camera.UserSetLoad.Execute()
 
             # setting exposure, read from pylon viewer
-            self.camera.ExposureTimeAbs.Value = 34510 # 116000
+            self.camera.ExposureTimeAbs.Value = config["camera"]["exposure_time"]
             # self._print_camera_attributes()
 
             # Configure format converter

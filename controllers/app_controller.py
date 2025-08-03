@@ -158,7 +158,6 @@ class AppController(QObject):
         
     def _on_robot_error(self, error_msg):
         """Handle robot connection error."""
-        logger.error(f"Robot error: {error_msg}")
         self.status_message.emit(f"Robot error: {error_msg}")
 
     def _on_robot_status(self, status_message):
@@ -218,7 +217,7 @@ class AppController(QObject):
                 frame, 
                 self.centroid_manager.img_filtered_centroids, 
                 -1,  # No current index 
-                size=10,
+                size=5,
                 row_indices=self.centroid_manager.row_indices
             )
         
