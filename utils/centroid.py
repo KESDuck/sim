@@ -69,8 +69,11 @@ class CentroidManager:
         # Sort the filtered centroids
         sorted_centroids = self._sort_centroids(filtered_centroids)
 
+        # Subsample the centroids and recalculate row indices
+        subsampled_centroids = self._subsample_centroids(sorted_centroids, interval=5)
+
         # Convert to robot coordinates and store in the same objects
-        self.centroids = self._convert_to_robot_coords(sorted_centroids)
+        self.centroids = self._convert_to_robot_coords(subsampled_centroids)
 
         # Store timestamp when processing completed
         self.last_processed_time = time.time()
@@ -82,6 +85,10 @@ class CentroidManager:
         """
         Get the current row of centroids.
         """
+        # Check bounds
+        if self.row_counter < 0 or self.row_counter >= len(self._row_indices):
+            return []
+            
         row_start = self._row_indices[self.row_counter]
         
         # Handle last row case
@@ -96,10 +103,9 @@ class CentroidManager:
 
     def next_row(self):
         """
-        Get the next row of centroids.
+        Move to the next row.
         """
         self.row_counter += 1
-        return self.get_row()
     
     def get_num_rows(self):
         return len(self._row_indices)
@@ -134,20 +140,35 @@ class CentroidManager:
         return [centroid for centroid in centroids 
                 if x_min < centroid.img_x < x_max and y_min < centroid.img_y < y_max]
     
-    def _filter_mod5_centroids(self, centroids):
+    def _subsample_centroids(self, centroids, interval=5):
         """
-        Only get centroids that are divisible by 5.
+        Subsample centroids by taking every nth centroid and recalculate row indices.
 
         Args:
-            centroids (list): List of Centroid objects
+            centroids (list): List of sorted Centroid objects with row information
+            interval (int): Take every nth centroid (default: 5)
             
         Returns:
-            list: Filtered list of Centroid objects at indices divisible by 5
+            list: Subsampled list of Centroid objects with updated row indices
         """
         if not centroids:
+            self._row_indices = []
             return []
-            
-        return [point for i, point in enumerate(centroids) if i % 5 == 0]
+        
+        # Subsample the centroids
+        subsampled = [point for i, point in enumerate(centroids) if i % interval == 0]
+        
+        # Recalculate row indices based on subsampled centroids
+        self._row_indices = []
+        current_row = -1
+        
+        for i, centroid in enumerate(subsampled):
+            if centroid.row != current_row:
+                # New row detected
+                current_row = centroid.row
+                self._row_indices.append(i)
+        
+        return subsampled
     
     def _filter_test_centroids(self, centroids):
         """
