@@ -77,7 +77,7 @@ def draw_points(image, points, current_index=None, size=3, row_indices=None):
     for point in points:
         # Handle both Centroid objects and tuple format for backward compatibility
         if isinstance(point, Centroid):
-            x, y, group_num, idx = int(point.x), int(point.y), point.group, point.idx
+            x, y, group_num, idx = int(point.img_x), int(point.img_y), point.row, point.idx_final
         else:
             # Legacy tuple format (x, y, group_num, idx)
             x, y, group_num, idx = point

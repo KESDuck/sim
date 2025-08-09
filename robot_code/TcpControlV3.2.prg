@@ -1,5 +1,5 @@
 '====================================================================
-' TCP CONTROL V3.1
+' TCP CONTROL V3.2
 '====================================================================
 
 ' Global constants
@@ -230,8 +230,20 @@ Function ProcessReceivedMessage
                 Case "test"
                     If RobotState = 1 Then  ' Only if IDLE
                         SetRobotState 4  ' TESTING
-                        Pause
                         Signal 10  ' Signal OperationProcessor to start working
+                    Else
+                        Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
+                    EndIf
+                
+                Case "loadmagazine"
+                    If NumTokens = 2 And RobotState = 1 Then  ' Only if IDLE
+                        Integer screwCount
+                        screwCount = Val(Tokens$(1))
+                        ' For now just pause - future implementation will set IO based on screwCount
+                        Jump XY(0, 580, 0, 0) /L LimZ 0
+                        Pause
+                        SendResponse "MAGAZINE_LOADED"
+                        Print "[ProcessReceivedMessage] Magazine loaded with ", screwCount, " screws"
                     Else
                         Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
                     EndIf
@@ -368,23 +380,24 @@ Fend
 '====================================================================
 ' Operation Functions
 '====================================================================
+
 Function DoInsert(ByVal index As Integer)
     ' Pause
     MoveX = Val(CoordinateQueue$(index, 0))
     MoveY = Val(CoordinateQueue$(index, 1))
     Print "[DoInsert] Inserting at: (", MoveX, ", ", MoveY, ")"
 
-    Jump pFeederReceive -Y(12) LimZ -18
-    Go pFeederReceive
+    Jump XY(MoveX, MoveY, 0, 0) /L LimZ 0
+    Wait 0.1 ' Just moved to location
     On ioGripper
-    Go pFeederReceive -Y(12)
+    Wait 0.1 ' Gripper grab
     On ioFeeder
-    Wait 0.1
-    Off ioFeeder
-    Jump XY(MoveX, MoveY, -150, 0) /L LimZ -18
+    Wait 0.4 ' Feeder extend, must be greater than 0.3
     Off ioGripper
-    ' Wait 0.2
-    ' Go XY(MoveX, MoveY, -150, 0) /L -Y(40)
+    Wait 0.5 ' Open gripper, change if needed
+    Off ioFeeder
+    Wait 3.0 ' Feeder retract, must be greater than 0.3
+
 Fend
 
 Function DoTest(ByVal index As Integer)
@@ -394,7 +407,12 @@ Function DoTest(ByVal index As Integer)
     Print "[DoTest] Testing at: (", MoveX, ", ", MoveY, ")"
 
     ' Move to position
-    Jump XY(MoveX, MoveY, -100, 0) /L LimZ -19
+    Jump XY(MoveX, MoveY, 0, 0) /L LimZ 0
+    Wait 0.1
+    On ioFeeder
+    Wait 0.3 ' Feeder extend, must be greater than 0.3
+    Off ioFeeder
+    Wait 3.0 ' Feeder retract, must be greater than 0.3
 Fend
 
 Function DoStopTask

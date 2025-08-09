@@ -129,7 +129,7 @@ capture_process_frame:
 ```
 
 ## Messaging Protocol
-
+TODO: 25-08-07 this might need some updating
 ### States
 - State 0: Idle
 - State 1: Imaging

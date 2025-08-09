@@ -66,11 +66,16 @@ class RobotModel(QObject):
     robot_status = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, ip, port, timeout=5.0):
+    def __init__(self, ip, port, timeout=5.0, simulated=False):
         super().__init__()
         self.ip = ip
         self.port = port
-        self.socket = RobotSocket(ip, port, timeout)
+        self.simulated = simulated
+        
+        if not self.simulated:
+            self.socket = RobotSocket(ip, port, timeout)
+        else:
+            self.socket = None
 
         self.robot_state = self.DISCONNECT
 
@@ -84,11 +89,13 @@ class RobotModel(QObject):
         
         # Expectations management
         self._expectations = []  # List of CommandExpectation objects
+        self._simulation_timers = []  # Keep references to simulation timers
         
-        # Connect socket signals
-        self.socket.connected.connect(self._on_connected)
-        self.socket.connection_error.connect(self._on_connection_error)
-        self.socket.response_received.connect(self._on_raw_response)
+        # Connect socket signals (only if not simulated)
+        if not self.simulated:
+            self.socket.connected.connect(self._on_connected)
+            self.socket.connection_error.connect(self._on_connection_error)
+            self.socket.response_received.connect(self._on_raw_response)
         
         # Setup reconnect timer
         self.reconnect_timer = QTimer()
@@ -102,16 +109,23 @@ class RobotModel(QObject):
     
     def connect_to_server(self):
         """Connect to the robot."""
-        if self.socket.connect_to_server():
-            # Stop reconnect timer when connected
-            self.reconnect_timer.stop()
+        if self.simulated:
+            # In simulation mode, always "connect" successfully
+            self.robot_state = self.IDLE
+            self.robot_connected.emit()
+            logger.info("Connected to simulated robot")
             return True
         else:
-            self.robot_state = self.DISCONNECT
-            # Start reconnect timer if not already running
-            if not self.reconnect_timer.isActive():
-                self.reconnect_timer.start()
-            return False
+            if self.socket.connect_to_server():
+                # Stop reconnect timer when connected
+                self.reconnect_timer.stop()
+                return True
+            else:
+                self.robot_state = self.DISCONNECT
+                # Start reconnect timer if not already running
+                if not self.reconnect_timer.isActive():
+                    self.reconnect_timer.start()
+                return False
 
     def _attempt_reconnect(self):
         """Attempt to reconnect to the robot if not connected."""
@@ -219,30 +233,70 @@ class RobotModel(QObject):
             logger.error("Robot not connected")
             return False
             
-        # Send the command
-        success = self.socket.send_command(cmd)
-        
-        if not success:
-            logger.error(f"Failed to send command: {cmd}")
-            return False
+        if self.simulated:
+            # In simulation mode, always succeed
+            logger.info(f"Simulated robot command: {cmd}")
             
-        # If we expect a response, set up the expectation
-        if expect:
-            self._add_expectation(
-                expected_response=expect,
-                timeout=timeout,
-                on_success=on_success,
-                on_timeout=on_timeout
-            )
+            # If we expect a response, set up the expectation and simulate the response
+            if expect:
+                self._add_expectation(
+                    expected_response=expect,
+                    timeout=timeout,
+                    on_success=on_success,
+                    on_timeout=on_timeout
+                )
+                
+                # Simulate the response after a short delay
+                def simulate_response():
+                    logger.debug(f"Simulated response: {expect}")
+                    self._on_raw_response(expect)
+                    # Remove timer from our list after it fires
+                    if timer in self._simulation_timers:
+                        self._simulation_timers.remove(timer)
+                
+                # Use a timer to simulate response delay
+                timer = QTimer(self)  # Set parent to prevent garbage collection
+                timer.setSingleShot(True)
+                timer.timeout.connect(simulate_response)
+                self._simulation_timers.append(timer)  # Keep reference
+                simulate_delay = 100
+                if cmd == "insert" or cmd == "test":
+                    simulate_delay = 1000
+                timer.start(simulate_delay)  # 1 second delay to simulate processing time
             
-        return True
+            return True
+        else:
+            # Send the command to real robot
+            success = self.socket.send_command(cmd)
+            
+            if not success:
+                logger.error(f"Failed to send command: {cmd}")
+                return False
+                
+            # If we expect a response, set up the expectation
+            if expect:
+                self._add_expectation(
+                    expected_response=expect,
+                    timeout=timeout,
+                    on_success=on_success,
+                    on_timeout=on_timeout
+                )
+                
+            return True
     
     def close(self):
         """Close the connection to the robot."""
         logger.info("Closing robot connection")
         self.reconnect_timer.stop()  # Stop reconnect timer
         self.timeout_timer.stop()    # Stop timeout checker
-        self.socket.close()
+        
+        # Clean up simulation timers
+        for timer in self._simulation_timers:
+            timer.stop()
+        self._simulation_timers.clear()
+        
+        if not self.simulated and self.socket:
+            self.socket.close()
         self.robot_state = self.DISCONNECT
 
     def where(self, simple=True) -> str:
@@ -257,11 +311,7 @@ if __name__ == "__main__":
     
     logger.setLevel(logging.DEBUG)
     
-
-    
     TEST_MODE = "MOVE_P2P"
-
-    
 
     if TEST_MODE == "MOVE_P2P":
         app = QApplication(sys.argv)

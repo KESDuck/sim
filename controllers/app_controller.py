@@ -42,7 +42,6 @@ class CrossPositionManager:
             return f"Camera: ({cam_x:.1f}, {cam_y:.1f}), Robot: ({robot_x:.2f}, {robot_y:.2f})"
 
 
-
 class AppController(QObject):
     """
     Controller that coordinates between UI, robot, and vision.
@@ -57,10 +56,11 @@ class AppController(QObject):
 
     # State machine states
     STATE_IDLE = "IDLE"
-    STATE_MOVING_1 = "MOVING_1"
+    STATE_MOVE_TO_CAPTURE = "MOVING_CAPTURE"
     STATE_CAPTURING = "CAPTURING"
-    STATE_MOVING_2 = "MOVING_2"
+    STATE_MOVE_TO_RELOAD = "MOVING_RELOAD"
     STATE_QUEUEING = "QUEUEING"
+    STATE_LOADING_MAGAZINE = "LOADING_MAGAZINE"
     STATE_INSERTING = "INSERTING"
     STATE_TESTING = "TESTING"
 
@@ -77,6 +77,7 @@ class AppController(QObject):
     EXPECT_INSERT_DONE = "INSERT_DONE"
     EXPECT_TEST_DONE = "TEST_DONE"
     EXPECT_STOPPED = "STOPPED"
+    EXPECT_MAGAZINE_LOADED = "MAGAZINE_LOADED"
     
     # batch processing constants
     QUEUE_BATCH_SIZE = 15
@@ -102,7 +103,11 @@ class AppController(QObject):
     
     def _init_models(self):
         """Initialize robot and vision models"""
-        self.robot = RobotModel(ip=config["robot"]["ip"], port=config["robot"]["port"])
+        self.robot = RobotModel(
+            ip=config["robot"]["ip"], 
+            port=config["robot"]["port"],
+            simulated=config["robot"].get("simulated", False)
+        )
         self.vision = VisionModel(cam_type=config["cam_type"])
         
         # Initialize managers
@@ -212,13 +217,13 @@ class AppController(QObject):
         frame = draw_boundary_box(frame, config["boundary"])
         
         # Add overlay with centroids if available and requested
-        if draw_cells and self.current_view_state != "live" and self.centroid_manager.img_filtered_centroids is not None:
+        if draw_cells and self.current_view_state != "live" and self.centroid_manager.centroids is not None:
             frame = draw_points(
                 frame, 
-                self.centroid_manager.img_filtered_centroids, 
+                self.centroid_manager.centroids, 
                 -1,  # No current index 
                 size=5,
-                row_indices=self.centroid_manager.row_indices
+                row_indices=self.centroid_manager._row_indices
             )
         
         # Draw cross on frame before emitting
@@ -371,7 +376,7 @@ class AppController(QObject):
         self.current_operation_mode = mode
         
         # Start the state machine
-        self.transition_to(self.STATE_MOVING_1)
+        self.transition_to(self.STATE_MOVE_TO_CAPTURE)
         return True
     
     def transition_to(self, new_state, reason="success"):
@@ -392,14 +397,16 @@ class AppController(QObject):
         self.current_operation_state = new_state
         
         # Execute state entry action
-        if new_state == self.STATE_MOVING_1:
-            self._execute_move_1()
+        if new_state == self.STATE_MOVE_TO_CAPTURE:
+            self._execute_move_capture()
         elif new_state == self.STATE_CAPTURING:
             self._execute_capture()
-        elif new_state == self.STATE_MOVING_2:
-            self._execute_move_2()
+        elif new_state == self.STATE_MOVE_TO_RELOAD:
+            self._execute_move_reload()
         elif new_state == self.STATE_QUEUEING:
             self._execute_queue()
+        elif new_state == self.STATE_LOADING_MAGAZINE:
+            self._execute_load_magazine()
         elif new_state == self.STATE_INSERTING:
             self._execute_insert()
         elif new_state == self.STATE_TESTING:
@@ -407,7 +414,7 @@ class AppController(QObject):
         elif new_state == self.STATE_IDLE:
             self.current_operation_mode = self.MODE_IDLE
     
-    def _execute_move_1(self):
+    def _execute_move_capture(self):
         """Execute the move to capture position"""
         # Get section position
         try:
@@ -426,14 +433,15 @@ class AppController(QObject):
     def _execute_capture(self):
         """Execute the capture state"""
         self.vision.stop_live_capture()
-        time.sleep(1)
+        time.sleep(2)
         
         # Try to capture and process image
         for i in range(3):
             if self.vision.capture_and_process():
                 if self.centroid_manager.is_centroid_updated_recently():
+                    self.centroid_manager.row_counter = 0
                     time.sleep(1)
-                    self.transition_to(self.STATE_MOVING_2)
+                    self.transition_to(self.STATE_MOVE_TO_RELOAD)
                     return
                 else:
                     logger.error("Centroid not updated recently")
@@ -447,13 +455,12 @@ class AppController(QObject):
         self.status_message.emit("Failed to capture image")
         self.transition_to(self.STATE_IDLE, "error")
 
-    def _execute_move_2(self):
-        """Move to lowered Z position of capture position"""
-        # Get section position
+    def _execute_move_reload(self):
+        """Move the robot to reload position"""
         try:
-            x, y, z, u = self.get_section(self.operation_section_id)
+            x, y, z, u = config["reload_position"]
             self.robot.send(
-                cmd=f"move {x} {y} {z-20} {u}",
+                cmd=f"move {x} {y} {z} {u}",
                 expect=self.EXPECT_POSITION_REACHED,
                 timeout=5.0,
                 on_success=lambda: self.transition_to(
@@ -462,11 +469,11 @@ class AppController(QObject):
                 on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
             )
         except Exception as e:
-            logger.error(f"Move failed: {e}")
+            logger.error(f"Move to reload position failed: {e}")
             self.transition_to(self.STATE_IDLE, "error")
 
     def _execute_queue(self):
-        centroids = self.centroid_manager.robot_centroids
+        centroids = self.centroid_manager.centroids
         if not centroids:
             logger.error("No centroids available for queue")
             self.transition_to(self.STATE_IDLE, "error")
@@ -477,61 +484,97 @@ class AppController(QObject):
             cmd="clearqueue",
             expect=self.EXPECT_QUEUE_CLEARED,
             timeout=1.0,
-            on_success=self._send_batched_centroids,
+            on_success=self._send_row,
             on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
         )
     
-    def _send_batched_centroids(self):
-        centroids = self.centroid_manager.robot_centroids
-        
-        # Send first batch
-        self._send_centroid_batch(centroids, 0)
-    
-    def _send_centroid_batch(self, centroids, start_idx):
-        if start_idx >= len(centroids):
-            # All batches sent, move to next state
+    def _send_row(self):
+        cur_row_counter = self.centroid_manager.row_counter
+
+        if cur_row_counter >= self.centroid_manager.get_num_rows():
+            # All rows sent and inserted, move to idle
+            logger.info(f"Section completed 🎉")
 
             self.transition_to(
-                self.STATE_INSERTING if self.current_operation_mode == self.MODE_INSERT else self.STATE_TESTING
+                self.STATE_IDLE
             )
+            return
+        else:
+            logger.info(f"Queue: row {cur_row_counter}")
+            self._batch_send_centroids(self.centroid_manager.get_row(), 0)
+    
+    def _batch_send_centroids(self, centroids, start_idx):
+        """
+        Recursively send a batch of centroids to the robot.
+
+        Args:
+            centroids: List of Centroid objects
+            start_idx: Index of the first centroid to send
+        """
+        if start_idx >= len(centroids):
+            # All centroids of this row sent
+            self.transition_to(self.STATE_LOADING_MAGAZINE)
             return
         
         end_idx = min(start_idx + self.QUEUE_BATCH_SIZE, len(centroids))
         batch = centroids[start_idx:end_idx]
         
         # Build the batch command
-        queue_cmd = "queue " + " ".join([f"{x:.2f} {y:.2f}" for x, y in batch])
+        queue_cmd = "queue " + " ".join([f"{centroid.robot_x:.2f} {centroid.robot_y:.2f}" for centroid in batch])
         
         logger.info(f"Queue batch {start_idx}-{end_idx-1}: Start")
         self.robot.send(
             cmd=queue_cmd,
             expect=self.EXPECT_QUEUE_APPENDED,
             timeout=1.0,
-            on_success=lambda: self._send_centroid_batch(centroids, end_idx),
+            on_success=lambda: self._batch_send_centroids(centroids, end_idx),
+            on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
+        )
+
+    def _execute_load_magazine(self):
+        """Execute the magazine loading state"""
+        centroids = self.centroid_manager.get_row()
+        if not centroids:
+            logger.error("No centroids available for magazine loading")
+            self.transition_to(self.STATE_IDLE, "error")
+            return
+                
+        num_screws = len(centroids)
+        
+        self.robot.send(
+            cmd=f"loadmagazine {num_screws}",
+            expect=self.EXPECT_MAGAZINE_LOADED,
+            timeout=60.0,
+            on_success=lambda: self.transition_to(
+                self.STATE_INSERTING if self.current_operation_mode == self.MODE_INSERT else self.STATE_TESTING
+            ),
             on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
         )
 
     def _execute_insert(self):
         """Execute the insertion state"""
-        logger.info("Insertion: Start")
         self.robot.send(
             cmd="insert",
             expect=self.EXPECT_INSERT_DONE,
             timeout=60.0,  # Use a reasonable timeout based on queue size
-            on_success=lambda: self.transition_to(self.STATE_IDLE),
+            on_success=lambda: self._on_row_complete(),
             on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
         )
 
     def _execute_test(self):
         """Execute the testing state"""
-        logger.info("Testing: Start")
         self.robot.send(
             cmd="test",
             expect=self.EXPECT_TEST_DONE,
             timeout=60.0,
-            on_success=lambda: self.transition_to(self.STATE_IDLE),
+            on_success=lambda: self._on_row_complete(),
             on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
         )
+    
+    def _on_row_complete(self):
+        """Called when a row has been fully processed (inserted or tested)"""
+        self.centroid_manager.next_row()
+        self.transition_to(self.STATE_QUEUEING)
     
     # ===== High-Level Operations =====
     

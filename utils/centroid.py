@@ -12,12 +12,19 @@ class Centroid:
     """
     Represents a centroid with position and metadata.
     """
-    x: float
-    y: float
+    img_x: float
+    img_y: float
+    robot_x: float
+    robot_y: float
     idx: int = 0
-    group: int = 0
+    idx_final: int = 0
+    insert: bool = False
+    row: int = 0
     left: Optional['Centroid'] = None
     right: Optional['Centroid'] = None
+
+    def __str__(self):
+        return f"Centroid(img_x={self.img_x}, img_y={self.img_y}, robot_x={self.robot_x}, robot_y={self.robot_y}, idx={self.idx}, idx_final={self.idx_final}, insert={self.insert}, row={self.row})"
 
 
 class CentroidManager:
@@ -26,17 +33,15 @@ class CentroidManager:
     """
     def __init__(self, homo_matrix):
         self.homo_matrix = homo_matrix
-        self.img_raw_centroids = []
-        self.img_sorted_centroids = []
-        self.img_filtered_centroids = [] # used by _prepare_and_emit_frame
-        self.robot_centroids = []
-        self.row_indices = [] # indices of first centroid in each row
+        self.centroids = []  # Single list of centroids
+        self._row_indices = [] # indices of first centroid in each row
 
+        self.row_counter = 0
         self.last_processed_time = None  # Timestamp when processing last completed
 
     def process_centroids(self, centroids):
         """
-        Process centroids for robot use: 
+        Process centroids for robot use:
         1. Convert to Centroid objects if needed
         2. Filter centroids within boundary
         3. Sort centroids by rows
@@ -49,33 +54,55 @@ class CentroidManager:
             list: Processed Centroid objects ready for robot use
         """
         if centroids is None or len(centroids) == 0:
-            self.img_raw_centroids = []
-            self.img_sorted_centroids = []
-            self.img_filtered_centroids = []   # used by _prepare_and_emit_frame
-            self.robot_centroids = []
+            self.centroids = []
             return []
         
-        # Store the raw centroids (convert to Centroid objects if needed)
+        # Convert to Centroid objects if needed
         if centroids and not isinstance(centroids[0], Centroid):
-            self.img_raw_centroids = [Centroid(x=x, y=y) for x, y in centroids]
+            raw_centroids = [Centroid(img_x=x, img_y=y, robot_x=0, robot_y=0) for x, y in centroids]
         else:
-            self.img_raw_centroids = centroids
+            raw_centroids = centroids
 
         # Filter centroids to keep only those within boundary
-        filtered_centroids = self._filter_boundary_centroids(self.img_raw_centroids)
-        # filtered_centroids = self._filter_mod5_centroids(filtered_centroids)
+        filtered_centroids = self._filter_boundary_centroids(raw_centroids)
 
         # Sort the filtered centroids
-        self.img_filtered_centroids = self._sort_centroids(filtered_centroids)
-        self.img_sorted_centroids = self.img_filtered_centroids  # Same as filtered for consistency
+        sorted_centroids = self._sort_centroids(filtered_centroids)
 
-        # Convert to robot coordinates if needed
-        self.robot_centroids = self._convert_to_robot_coords(self.img_filtered_centroids)
+        # Convert to robot coordinates and store in the same objects
+        self.centroids = self._convert_to_robot_coords(sorted_centroids)
 
         # Store timestamp when processing completed
         self.last_processed_time = time.time()
+        self.row_counter = 0
         
-        return self.robot_centroids
+        return self.centroids
+
+    def get_row(self):
+        """
+        Get the current row of centroids.
+        """
+        row_start = self._row_indices[self.row_counter]
+        
+        # Handle last row case
+        if self.row_counter + 1 < len(self._row_indices):
+            row_end = self._row_indices[self.row_counter + 1]
+        else:
+            # Last row - use all remaining centroids
+            row_end = len(self.centroids)
+            
+        return self.centroids[row_start:row_end]
+
+
+    def next_row(self):
+        """
+        Get the next row of centroids.
+        """
+        self.row_counter += 1
+        return self.get_row()
+    
+    def get_num_rows(self):
+        return len(self._row_indices)
 
     def is_centroid_updated_recently(self):
         """Check if centroid processing was done recently. Used to make sure the centroids are not from
@@ -105,7 +132,7 @@ class CentroidManager:
         
         # Filter centroids
         return [centroid for centroid in centroids 
-                if x_min < centroid.x < x_max and y_min < centroid.y < y_max]
+                if x_min < centroid.img_x < x_max and y_min < centroid.img_y < y_max]
     
     def _filter_mod5_centroids(self, centroids):
         """
@@ -160,12 +187,12 @@ class CentroidManager:
                 
                 for centroid in centroids:
                     # Check if centroid is in this cell
-                    if (x_min + i * x_step <= centroid.x <= x_min + (i + 1) * x_step and
-                        y_min + j * y_step <= centroid.y <= y_min + (j + 1) * y_step):
+                    if (x_min + i * x_step <= centroid.img_x <= x_min + (i + 1) * x_step and
+                        y_min + j * y_step <= centroid.img_y <= y_min + (j + 1) * y_step):
                         
                         # Calculate distance to cell center
-                        dist = ((centroid.x - cell_center_x) ** 2 + 
-                                (centroid.y - cell_center_y) ** 2) ** 0.5
+                        dist = ((centroid.img_x - cell_center_x) ** 2 + 
+                                (centroid.img_y - cell_center_y) ** 2) ** 0.5
                         
                         if dist < min_distance:
                             min_distance = dist
@@ -179,24 +206,20 @@ class CentroidManager:
 
     def _sort_centroids(self, centroids):
         """
-        Sort centroids by grouping them into horizontal rows using simplified graph-based clustering.
+        Sort centroids by group them into horizontal rows using simplified graph-based clustering.
         For each centroid, find the closest left and right neighbors within a bounding box.
 
         Args:
-            centroids (list): List of Centroid objects or (x, y) tuples
+            centroids (list): List of Centroid objects
 
         Returns:
             list: A flat list of Centroid objects, sorted by rows and then by x within each row
         """
         if len(centroids) == 0:
             return []
-        
-        # Convert input to Centroid objects if needed
-        if centroids and not isinstance(centroids[0], Centroid):
-            centroids = [Centroid(x=x, y=y) for x, y in centroids]
             
         # Clear previous row indices and reset connections
-        self.row_indices = []
+        self._row_indices = []
         for centroid in centroids:
             centroid.left = None
             centroid.right = None
@@ -209,7 +232,7 @@ class CentroidManager:
         y_range = 15   # y: from -15 to +15
         
         for i in range(n):
-            x1, y1 = centroids[i].x, centroids[i].y
+            x1, y1 = centroids[i].img_x, centroids[i].img_y
             min_left_dist = float('inf')
             min_right_dist = float('inf')
             
@@ -217,7 +240,7 @@ class CentroidManager:
                 if i == j:
                     continue
                     
-                x2, y2 = centroids[j].x, centroids[j].y
+                x2, y2 = centroids[j].img_x, centroids[j].img_y
                 dx = x2 - x1
                 dy = y2 - y1
                 distance = (dx**2 + dy**2)**0.5
@@ -238,32 +261,40 @@ class CentroidManager:
         leading_indices = [i for i, centroid in enumerate(centroids) if centroid.left is None]
         
         # Sort leading nodes by y-coordinate (top to bottom)
-        leading_indices.sort(key=lambda i: centroids[i].y)
+        leading_indices.sort(key=lambda i: centroids[i].img_y)
         
         # Step 3: Build rows by traversing from each leading node to the right
         sorted_centroids = []
         visited = [False] * n
-        current_idx_counter = 0
-        
-        for group_num, leading_idx in enumerate(leading_indices):
+        final_idx = 0
+        for row_num, leading_idx in enumerate(leading_indices):
             if visited[leading_idx]:
                 continue
                 
             # Start a new row
-            self.row_indices.append(len(sorted_centroids))
+            self._row_indices.append(len(sorted_centroids))
             
             # Traverse the row from left to right
             current_idx = leading_idx
+
             while current_idx is not None:
                 if visited[current_idx]:
                     break
                     
                 visited[current_idx] = True
                 current_centroid = centroids[current_idx]
-                # Create new Centroid with updated group and idx
-                sorted_centroid = Centroid(x=current_centroid.x, y=current_centroid.y, idx=current_idx_counter, group=group_num)
+                # Create new Centroid with updated row
+                sorted_centroid = Centroid(
+                    img_x=current_centroid.img_x, 
+                    img_y=current_centroid.img_y,
+                    robot_x=current_centroid.robot_x,
+                    robot_y=current_centroid.robot_y, 
+                    idx=current_idx, 
+                    idx_final=final_idx, 
+                    row=row_num
+                )
                 sorted_centroids.append(sorted_centroid)
-                current_idx_counter += 1
+                final_idx += 1
                 
                 # Move to the closest right neighbor
                 next_centroid = current_centroid.right
@@ -287,7 +318,7 @@ class CentroidManager:
             centroids (list): List of Centroid objects in camera coordinates
             
         Returns:
-            list: List of Centroid objects in robot coordinates
+            list: List of Centroid objects with robot coordinates updated
         """
         if not centroids:
             return []
@@ -295,13 +326,10 @@ class CentroidManager:
         # Import here to avoid circular import
         from .tools import map_image_to_robot
             
-        robot_centroids = []
         for centroid in centroids:
-            # Convert coordinates
-            robot_coords = map_image_to_robot((centroid.x, centroid.y), self.homo_matrix)
-            # Create new Centroid object with robot coordinates
-            robot_centroid = Centroid(x=robot_coords[0], y=robot_coords[1], 
-                                    idx=centroid.idx, group=centroid.group)
-            robot_centroids.append(robot_centroid)
+            # Convert coordinates and update robot_x, robot_y in place
+            robot_coords = map_image_to_robot((centroid.img_x, centroid.img_y), self.homo_matrix)
+            centroid.robot_x = robot_coords[0]
+            centroid.robot_y = robot_coords[1]
         
-        return robot_centroids
+        return centroids

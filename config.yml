@@ -15,23 +15,28 @@ homo_matrix:
     # - [-0.000002858, 0.000000315, 1.000000000]
   # Avg Error: 0.075, see raw data in vision_homography_mapper.py
   - [0.000134227, -0.105409095, 106.320576115]
-  - [-0.105741448, 0.000593871, 602.805691025]
+  - [-0.105741448, 0.000593871, 600]
   - [-0.000000930, 0.000001675, 1.000000000]
 
 
 capture_positions:
-  - [120, 330, 0, 90]
-  - [-60, 330, 0, 90] # calibraition point
-  - [-240, 330, 0, 90]
+  # - [ 120, 300, 0, 90]
+  - [   0, 300, 0, 180]
+  - [   0, 300, 0, 180] # calibraition point
+  - [   0, 300, 0, 180]
+  # - [-240, 300, 0, 90]
+
+reload_position: [0, 580, 0, 0]
 
 robot:
+  simulated: false     # Enable simulated robot mode (no real hardware connection)
   ip: "192.168.0.1"  # Robot IP address
   port: 8501           # Robot TCP port
   z_max: -16.5
   z_min: -157
   jump_z_lim: -18
-  #z_insert: -150 # all the way
-  z_insert: -80
+  # z_insert: -150 # all the way
+  # z_insert: -80
 
 boundary:
   x_min: 400
@@ -41,7 +46,7 @@ boundary:
 
 camera:
   # 45010 for longfu calibration
-  exposure_time: 45010  # Camera exposure time in microseconds (was hard-coded)
+  exposure_time: 55010  # Camera exposure time in microseconds (was hard-coded)
 
 vision:
   update_frequency: 10  # Frequency of frame updates in Hz
