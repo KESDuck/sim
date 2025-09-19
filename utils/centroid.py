@@ -113,11 +113,12 @@ class CentroidManager:
     def next_row(self):
         """
         Move to the next row that has valid centroids (insert_flag=True).
+        Automatically skips empty rows to improve processing efficiency.
         """
         original_counter = self.row_counter
         self.row_counter += 1
         
-        # Skip rows with no valid centroids
+        # Skip rows with no valid centroids to avoid processing empty rows
         while (self.row_counter < len(self._row_indices) and 
                not self.has_valid_centroids_in_row(self.row_counter)):
             self.row_counter += 1
@@ -126,7 +127,10 @@ class CentroidManager:
         return len(self._row_indices)
 
     def has_valid_centroids_in_row(self, row_idx):
-        """Check if a row has any centroids with insert_flag=True"""
+        """
+        Check if a row has any centroids with insert_flag=True.
+        Used for intelligent row skipping during processing.
+        """
         if row_idx < 0 or row_idx >= len(self._row_indices):
             return False
         
@@ -178,8 +182,9 @@ class CentroidManager:
     
     def _subsample_centroids_evenly(self, centroids, row_subsample, centroid_subsample):
         """
-        Subsample centroids by setting insert_flag=False for non-selected centroids.
-        This preserves all centroids for visualization while marking only selected ones for processing.
+        Subsample centroids using insert_flag instead of removing items.
+        Preserves all centroids for visualization while marking only selected ones for processing.
+        Uses evenly spaced selection from valid centroids within each selected row.
         
         Args:
             centroids (list): List of sorted Centroid objects
@@ -195,7 +200,7 @@ class CentroidManager:
         # Store which centroids were originally valid before subsampling
         originally_valid = [centroid.insert_flag for centroid in centroids]
         
-        # First, set all centroids to insert_flag=False (will re-enable selected ones)
+        # Reset all flags to False (will selectively re-enable chosen ones)
         for centroid in centroids:
             centroid.insert_flag = False
         
@@ -386,7 +391,7 @@ class CentroidManager:
                     
                 visited[current_idx] = True
                 current_centroid = centroids[current_idx]
-                # Create new Centroid with updated row
+                # Create new Centroid with updated row (preserving insert_flag)
                 sorted_centroid = Centroid(
                     img_x=current_centroid.img_x, 
                     img_y=current_centroid.img_y,
@@ -395,7 +400,7 @@ class CentroidManager:
                     idx=current_idx, 
                     idx_final=final_idx, 
                     row=row_num,
-                    insert_flag=current_centroid.insert_flag
+                    insert_flag=current_centroid.insert_flag  # Preserve boundary filtering
                 )
                 sorted_centroids.append(sorted_centroid)
                 final_idx += 1

@@ -177,12 +177,15 @@ class EngineerTabView(QWidget):
         self.controller.set_view_state(state)
     
     def section_changed(self, section_id):
-        """Handle section change from UI dropdown"""
+        """Handle section change from UI dropdown. Updates controller display section."""
         logger.info(f"Section changed to: {section_id}")
         self.controller.set_display_section(section_id)
     
     def update_section_display(self, section_id):
-        """Update UI dropdown when section changes programmatically"""
+        """
+        Update UI dropdown when section changes programmatically.
+        Prevents signal loops by temporarily disconnecting the change handler.
+        """
         # Temporarily disconnect signal to avoid infinite loop
         self.ui_selection_dropdown.currentTextChanged.disconnect()
         self.ui_selection_dropdown.setCurrentText(section_id)

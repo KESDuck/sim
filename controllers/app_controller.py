@@ -613,7 +613,8 @@ class AppController(QObject):
     
     def get_section(self, section_id):
         """
-        Get the section configuration for a given section_id.
+        Get robot capture coordinates for a section. Handles both int and str section IDs
+        to prevent type mismatch errors between UI (sends int) and config (uses str keys).
         
         Args:
             section_id: ID of the section to retrieve (1-9, can be int or str)
@@ -621,7 +622,7 @@ class AppController(QObject):
         Returns:
             Tuple of (x, y, z, u) coordinates from capture_position
         """
-        # Convert to string to match section_config keys
+        # Convert to string to match section_config keys (fixes UI int vs config str mismatch)
         section_str = str(section_id)
         if section_str not in self.section_config:
             raise ValueError(f"Invalid section_id: {section_id}. Must be one of {list(self.section_config.keys())}")
@@ -630,13 +631,16 @@ class AppController(QObject):
         return self.section_config[section_str]["capture_position"]
     
     def set_display_section(self, section_id):
-        """Set the current section for display (affects bounding boxes and centroid filtering)"""
+        """
+        Set the current section for display. Updates bounding boxes and centroid filtering.
+        Emits section_changed signal for UI synchronization when section changes.
+        """
         section_str = str(section_id)
         if section_str in self.section_config:
             old_section = self.current_display_section
             self.current_display_section = section_str
             
-            # Emit signal if section actually changed
+            # Emit signal for UI synchronization if section actually changed
             if old_section != section_str:
                 self.section_changed.emit(section_str)
             
