@@ -71,10 +71,10 @@ class CentroidManager:
         sorted_centroids = self._sort_centroids(flagged_centroids)
 
         # Subsample the centroids and recalculate row indices
-        # subsampled_centroids = self._subsample_centroids_evenly(sorted_centroids, row_subsample=6, centroid_subsample=6)
+        subsampled_centroids = self._subsample_centroids_evenly(sorted_centroids, row_subsample=6, centroid_subsample=6)
 
         # Convert to robot coordinates and store in the same objects
-        self.centroids = self._convert_to_robot_coords(sorted_centroids)
+        self.centroids = self._convert_to_robot_coords(subsampled_centroids)
 
         # Store timestamp when processing completed
         self.last_processed_time = time.time()
@@ -178,8 +178,8 @@ class CentroidManager:
     
     def _subsample_centroids_evenly(self, centroids, row_subsample, centroid_subsample):
         """
-        TODO: not tested
-        Subsample centroids by evenly spacing rows and centroids within each row.
+        Subsample centroids by setting insert_flag=False for non-selected centroids.
+        This preserves all centroids for visualization while marking only selected ones for processing.
         
         Args:
             centroids (list): List of sorted Centroid objects
@@ -187,14 +187,21 @@ class CentroidManager:
             centroid_subsample (int): Number of centroids per row to select (evenly spaced)
             
         Returns:
-            list: Subsampled centroids with updated row indices
+            list: All centroids with insert_flag updated based on subsampling
         """
         if not centroids or len(self._row_indices) == 0:
-            return []
+            return centroids
+        
+        # Store which centroids were originally valid before subsampling
+        originally_valid = [centroid.insert_flag for centroid in centroids]
+        
+        # First, set all centroids to insert_flag=False (will re-enable selected ones)
+        for centroid in centroids:
+            centroid.insert_flag = False
         
         total_rows = len(self._row_indices)
         
-        # Step 1: Subsample rows evenly
+        # Step 1: Select rows to subsample evenly
         if row_subsample >= total_rows:
             # If we want more rows than available, use all rows
             selected_row_indices = list(range(total_rows))
@@ -206,11 +213,8 @@ class CentroidManager:
                 step = (total_rows - 1) / (row_subsample - 1)
                 selected_row_indices = [round(i * step) for i in range(row_subsample)]
         
-        subsampled_centroids = []
-        new_row_indices = []
-        
-        # Step 2: For each selected row, subsample centroids evenly
-        for new_row_num, row_idx in enumerate(selected_row_indices):
+        # Step 2: For each selected row, subsample centroids evenly and set insert_flag=True
+        for row_idx in selected_row_indices:
             # Get start and end indices for this row
             row_start = self._row_indices[row_idx]
             if row_idx + 1 < len(self._row_indices):
@@ -218,50 +222,35 @@ class CentroidManager:
             else:
                 row_end = len(centroids)
             
-            all_row_centroids = centroids[row_start:row_end]
-            # Filter to only centroids with insert_flag=True
-            row_centroids = [c for c in all_row_centroids if c.insert_flag]
+            # Get centroids in this row that were originally valid
+            originally_valid_centroids = []
+            for i in range(row_start, row_end):
+                if originally_valid[i]:  # Was originally valid before subsampling
+                    originally_valid_centroids.append((i, centroids[i]))
             
-            # If no valid centroids in this row, skip it entirely
-            if not row_centroids:
-                continue
+            if not originally_valid_centroids:
+                continue  # Skip rows with no originally valid centroids
             
-            total_centroids_in_row = len(row_centroids)
+            total_valid_in_row = len(originally_valid_centroids)
             
-            # Subsample centroids within this row
-            if centroid_subsample >= total_centroids_in_row:
-                # If we want more centroids than available, use all
-                selected_centroids = row_centroids
+            # Select evenly spaced centroids within this row
+            if centroid_subsample >= total_valid_in_row:
+                # If we want more centroids than available, use all valid ones
+                selected_centroid_indices = list(range(total_valid_in_row))
             else:
                 # Calculate evenly spaced centroid indices within the row
                 if centroid_subsample == 1:
-                    selected_indices = [total_centroids_in_row // 2]  # Middle centroid
+                    selected_centroid_indices = [total_valid_in_row // 2]  # Middle centroid
                 else:
-                    step = (total_centroids_in_row - 1) / (centroid_subsample - 1)
-                    selected_indices = [round(i * step) for i in range(centroid_subsample)]
-                
-                selected_centroids = [row_centroids[i] for i in selected_indices]
+                    step = (total_valid_in_row - 1) / (centroid_subsample - 1)
+                    selected_centroid_indices = [round(i * step) for i in range(centroid_subsample)]
             
-            # Update row numbers and add to result
-            new_row_indices.append(len(subsampled_centroids))
-            for centroid in selected_centroids:
-                # Create new centroid with updated row number
-                new_centroid = Centroid(
-                    img_x=centroid.img_x,
-                    img_y=centroid.img_y,
-                    robot_x=centroid.robot_x,
-                    robot_y=centroid.robot_y,
-                    idx=centroid.idx,
-                    idx_final=len(subsampled_centroids),
-                    insert_flag=centroid.insert_flag,
-                    row=new_row_num
-                )
-                subsampled_centroids.append(new_centroid)
+            # Set insert_flag=True for selected centroids
+            for idx in selected_centroid_indices:
+                _, selected_centroid = originally_valid_centroids[idx]
+                selected_centroid.insert_flag = True
         
-        # Update row indices for the subsampled data
-        self._row_indices = new_row_indices
-        
-        return subsampled_centroids
+        return centroids
     
     def _filter_test_centroids(self, centroids):
         """
