@@ -503,9 +503,21 @@ class AppController(QObject):
                 self.STATE_IDLE
             )
             return
-        else:
-            logger.info(f"Queue: row {cur_row_counter}")
-            self._batch_send_centroids(self.centroid_manager.get_row(), 0)
+        
+        # Check if current row has valid centroids
+        if not self.centroid_manager.has_valid_centroids_in_row(cur_row_counter):
+            # No valid centroids in current row, try next row
+            logger.info(f"Row {cur_row_counter} has no valid centroids, skipping to next row")
+            self.centroid_manager.next_row()
+            
+            # Check if we've run out of rows
+            if self.centroid_manager.row_counter >= self.centroid_manager.get_num_rows():
+                logger.info("All rows processed")
+                self.transition_to(self.STATE_IDLE)
+                return
+        
+        logger.info(f"Queue: row {cur_row_counter}")
+        self._batch_send_centroids(self.centroid_manager.get_row(), 0)
     
     def _batch_send_centroids(self, centroids, start_idx):
         """

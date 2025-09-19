@@ -51,8 +51,9 @@ section_config:
     conveyor_position: 2
     capture_position: [0, 300, 0, 180]
     bounding_boxes:
-      - [400, 300, 900, 1600]
-      - [1100, 300, 2100, 1600]
+      - [350, 300, 750, 1600]
+      - [950, 300, 1500, 1600]
+      - [1700, 300, 2100, 1600]
   "6":
     conveyor_position: 2
     capture_position: [-240, 300, 0, 90]

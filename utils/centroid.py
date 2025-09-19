@@ -54,7 +54,6 @@ class CentroidManager:
         Returns:
             list: Processed Centroid objects ready for robot use
         """
-        print(f"DEBUG: process_centroids called with {len(centroids) if centroids else 0} centroids")
         if centroids is None or len(centroids) == 0:
             self.centroids = []
             return []
@@ -66,7 +65,6 @@ class CentroidManager:
             raw_centroids = centroids
 
         # Set insert_flag based on whether centroids are within bounding boxes
-        print(bounding_boxes) # temp for debugging
         flagged_centroids = self._filter_boundary_centroids(raw_centroids, bounding_boxes)
 
         # Sort the flagged centroids
@@ -103,17 +101,40 @@ class CentroidManager:
             
         # Filter centroids to only return those with insert_flag=True
         row_centroids = self.centroids[row_start:row_end]
-        return [centroid for centroid in row_centroids if centroid.insert_flag]
+        valid_centroids = [centroid for centroid in row_centroids if centroid.insert_flag]
+        
+        # Log for debugging
+        if not valid_centroids:
+            print(f"DEBUG: Row {self.row_counter} has no valid centroids")
+        
+        return valid_centroids
 
 
     def next_row(self):
         """
-        Move to the next row.
+        Move to the next row that has valid centroids (insert_flag=True).
         """
+        original_counter = self.row_counter
         self.row_counter += 1
+        
+        # Skip rows with no valid centroids
+        while (self.row_counter < len(self._row_indices) and 
+               not self.has_valid_centroids_in_row(self.row_counter)):
+            self.row_counter += 1
     
     def get_num_rows(self):
         return len(self._row_indices)
+
+    def has_valid_centroids_in_row(self, row_idx):
+        """Check if a row has any centroids with insert_flag=True"""
+        if row_idx < 0 or row_idx >= len(self._row_indices):
+            return False
+        
+        row_start = self._row_indices[row_idx]
+        row_end = self._row_indices[row_idx + 1] if row_idx + 1 < len(self._row_indices) else len(self.centroids)
+        
+        row_centroids = self.centroids[row_start:row_end]
+        return any(centroid.insert_flag for centroid in row_centroids)
 
     def is_centroid_updated_recently(self):
         """Check if centroid processing was done recently. Used to make sure the centroids are not from
@@ -138,13 +159,10 @@ class CentroidManager:
         
         # If no bounding boxes provided, set all insert_flags to True
         if not bounding_boxes:
-            print(f"DEBUG: No bounding boxes provided, setting all {len(centroids)} centroids to insert_flag=True")
             for centroid in centroids:
                 centroid.insert_flag = True
             return centroids
-        
-        print(f"DEBUG: Processing {len(centroids)} centroids with {len(bounding_boxes)} bounding boxes")
-        
+                
         # Set insert_flag for centroids: True if within any bounding box, False otherwise
         inside_count = 0
         for centroid in centroids:
@@ -156,13 +174,11 @@ class CentroidManager:
                     inside_count += 1
                     break  # Stop checking other boxes once we find a match
 
-        # print("DEBUG: centroids after filtering")
-        # print([f"{centroid.img_x}, {centroid.img_y}, {centroid.insert_flag}" for centroid in centroids])
-        
         return centroids
     
     def _subsample_centroids_evenly(self, centroids, row_subsample, centroid_subsample):
         """
+        TODO: not tested
         Subsample centroids by evenly spacing rows and centroids within each row.
         
         Args:
@@ -202,7 +218,14 @@ class CentroidManager:
             else:
                 row_end = len(centroids)
             
-            row_centroids = centroids[row_start:row_end]
+            all_row_centroids = centroids[row_start:row_end]
+            # Filter to only centroids with insert_flag=True
+            row_centroids = [c for c in all_row_centroids if c.insert_flag]
+            
+            # If no valid centroids in this row, skip it entirely
+            if not row_centroids:
+                continue
+            
             total_centroids_in_row = len(row_centroids)
             
             # Subsample centroids within this row
@@ -382,7 +405,8 @@ class CentroidManager:
                     robot_y=current_centroid.robot_y, 
                     idx=current_idx, 
                     idx_final=final_idx, 
-                    row=row_num
+                    row=row_num,
+                    insert_flag=current_centroid.insert_flag
                 )
                 sorted_centroids.append(sorted_centroid)
                 final_idx += 1

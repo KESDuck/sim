@@ -74,10 +74,6 @@ def draw_points(image, points, current_index=None, size=3, row_indices=None):
         (255, 165, 0),  # Orange
     ]
 
-    # print("DEBUG: draw points")
-    # print([f"{point.img_x}, {point.img_y}, {point.insert_flag}" for point in points])
-
-
     for i, point in enumerate(points):
         # Handle both Centroid objects and tuple format for backward compatibility
         if isinstance(point, Centroid):
@@ -85,7 +81,7 @@ def draw_points(image, points, current_index=None, size=3, row_indices=None):
             
             # Set color based on insert_flag
             if point.insert_flag:
-                color = (0, 255, 0)  # Green for insert_flag=True
+                color = (50, 255, 50)  # Green for insert_flag=True
             else:
                 color = (128, 128, 128)  # Grey for insert_flag=False
         else:
