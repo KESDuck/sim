@@ -387,17 +387,32 @@ Function DoInsert(ByVal index As Integer)
     MoveY = Val(CoordinateQueue$(index, 1))
     Print "[DoInsert] Inserting at: (", MoveX, ", ", MoveY, ")"
 
-    Jump XY(MoveX, MoveY, 0, 0) /L LimZ 0
-    Wait 0.1 ' Just moved to location
-    On ioGripper
-    Wait 0.1 ' Gripper grab
-    On ioFeeder
-    Wait 0.4 ' Feeder extend, must be greater than 0.3
-    Off ioGripper
-    Wait 0.5 ' Open gripper, change if needed
-    Off ioFeeder
-    Wait 3.0 ' Feeder retract, must be greater than 0.3
+    Jump XY(MoveX, MoveY, 0, 0) /L LimZ 0 ' Moved to location
+    Wait 0.05
+    On ioGripper ' Gripper grab
+    Wait 0.05
+    On ioFeeder ' Feeder extend, wait more than 0.3s
+    Wait 0.3
+    Off ioGripper ' Open gripper
+    Wait 0.1
+    Move XY(MoveX, MoveY - 5, 0, 0) /L
+    Off ioFeeder ' Feeder retract
+    'Wait 0.0
 
+Fend
+
+Function DoTestRepeat()
+	Do
+	    Wait 0.3
+        On ioGripper ' Gripper grab
+        Wait 0.05
+        On ioFeeder ' Feeder extend, must be greater than 0.3
+        Wait 0.3
+        Off ioGripper ' Open gripper, change if needed
+        Wait 0.1
+        Off ioFeeder ' Feeder retract
+	    'Wait 0.0
+	Loop
 Fend
 
 Function DoTest(ByVal index As Integer)
@@ -410,9 +425,9 @@ Function DoTest(ByVal index As Integer)
     Jump XY(MoveX, MoveY, 0, 0) /L LimZ 0
     Wait 0.1
     On ioFeeder
-    Wait 0.3 ' Feeder extend, must be greater than 0.3
+    Wait 0.4 ' Feeder extend, must be greater than 0.3
     Off ioFeeder
-    Wait 3.0 ' Feeder retract, must be greater than 0.3
+    Wait 0.2 ' Feeder retract, must be greater than 0.2
 Fend
 
 Function DoStopTask
@@ -438,3 +453,5 @@ Function ClearQueue
         CoordinateQueue$(i, 1) = ""
     Next i
 Fend
+
+

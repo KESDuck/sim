@@ -74,16 +74,25 @@ def draw_points(image, points, current_index=None, size=3, row_indices=None):
         (255, 165, 0),  # Orange
     ]
 
-    for point in points:
+    # print("DEBUG: draw points")
+    # print([f"{point.img_x}, {point.img_y}, {point.insert_flag}" for point in points])
+
+
+    for i, point in enumerate(points):
         # Handle both Centroid objects and tuple format for backward compatibility
         if isinstance(point, Centroid):
             x, y, group_num, idx = int(point.img_x), int(point.img_y), point.row, point.idx_final
+            
+            # Set color based on insert_flag
+            if point.insert_flag:
+                color = (0, 255, 0)  # Green for insert_flag=True
+            else:
+                color = (128, 128, 128)  # Grey for insert_flag=False
         else:
-            # Legacy tuple format (x, y, group_num, idx)
+            # Legacy tuple format (x, y, group_num, idx) - display all for backward compatibility
             x, y, group_num, idx = point
-        
-        # Use group-based coloring
-        color = group_colors[group_num % len(group_colors)]
+            # Use group-based coloring for legacy format
+            color = group_colors[group_num % len(group_colors)]
 
         cv.circle(image, (x, y), size, color, -1)
         
@@ -147,30 +156,29 @@ def add_border(image, color=(0, 0, 0), thickness=1):
     
     return img_with_border
 
-def draw_boundary_box(image, boundary_config):
+def draw_boundary_box(image, bounding_boxes):
     """
-    Draw bounding box based on boundary configuration.
+    Draw bounding boxes based on bounding box list configuration.
     
     Args:
         image: The input image (numpy array)
-        boundary_config: Dictionary with x_min, x_max, y_min, y_max keys
+        bounding_boxes: List of [x_min, y_min, x_max, y_max] coordinates
         
     Returns:
-        Image with boundary box drawn in red
+        Image with bounding boxes drawn in red
     """
-    if boundary_config is None:
+    if bounding_boxes is None or len(bounding_boxes) == 0:
         return image
     
     # Check if the image is grayscale and convert to BGR if needed
     if len(image.shape) == 2 or image.shape[2] == 1:  # Grayscale image
         image = cv.cvtColor(image, cv.COLOR_GRAY2BGR)
     
-    x_min = int(boundary_config["x_min"])
-    x_max = int(boundary_config["x_max"])
-    y_min = int(boundary_config["y_min"])
-    y_max = int(boundary_config["y_max"])
-    
-    # Draw red rectangle (BGR format: red is (0, 0, 255)) with thickness 1
-    cv.rectangle(image, (x_min, y_min), (x_max, y_max), (255, 0, 0), 2)
+    # Draw each bounding box
+    for bbox in bounding_boxes:
+        x_min, y_min, x_max, y_max = [int(coord) for coord in bbox]
+        
+        # Draw red rectangle (BGR format: red is (0, 0, 255)) with thickness 2
+        cv.rectangle(image, (x_min, y_min), (x_max, y_max), (255, 0, 0), 2)
     
     return image

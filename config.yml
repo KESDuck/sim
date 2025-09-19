@@ -14,17 +14,66 @@ homo_matrix:
     # - [-0.104674253, -0.000046658, 596.0]
     # - [-0.000002858, 0.000000315, 1.000000000]
   # Avg Error: 0.075, see raw data in vision_homography_mapper.py
-  - [0.000134227, -0.105409095, 106.320576115]
-  - [-0.105741448, 0.000593871, 600]
+  - [0.000134227, -0.105409095, 106.0] # 105
+  - [-0.105741448, 0.000593871, 602.5] # 604.5
   - [-0.000000930, 0.000001675, 1.000000000]
 
+# 1 2 3
+# 4 5 6
+# 7 8 9
 
-capture_positions:
-  # - [ 120, 300, 0, 90]
-  - [   0, 300, 0, 180]
-  - [   0, 300, 0, 180] # calibraition point
-  - [   0, 300, 0, 180]
-  # - [-240, 300, 0, 90]
+# 11 12 13
+# 21 22 23
+# 31 32 33
+
+section_config:
+  "1":
+    conveyor_position: 1
+    capture_position: [ 120, 300, 0, 90] # in robot coordinates
+    bounding_boxes: # x_min, y_min, x_max, y_max in camera coordinates
+      - [400, 300, 2100, 1600] 
+  "2":
+    conveyor_position: 1
+    capture_position: [0, 300, 0, 180]
+    bounding_boxes:
+      - [400, 300, 2100, 1600]
+  "3":
+    conveyor_position: 1
+    capture_position: [-240, 300, 0, 90]
+    bounding_boxes:
+      - [400, 300, 2100, 1600]
+  "4":
+    conveyor_position: 2
+    capture_position: [ 120, 300, 0, 90]
+    bounding_boxes:
+      - [400, 300, 2100, 1600]
+  "5":
+    conveyor_position: 2
+    capture_position: [0, 300, 0, 180]
+    bounding_boxes:
+      - [400, 300, 900, 1600]
+      - [1100, 300, 2100, 1600]
+  "6":
+    conveyor_position: 2
+    capture_position: [-240, 300, 0, 90]
+    bounding_boxes:
+      - [400, 300, 2100, 1600]
+  "7":
+    conveyor_position: 3
+    capture_position: [ 120, 300, 0, 90]
+    bounding_boxes:
+      - [400, 300, 2100, 1600]
+  "8":
+    conveyor_position: 3
+    capture_position: [0, 300, 0, 180]
+    bounding_boxes:
+      - [400, 300, 2100, 1600]
+  "9":
+    conveyor_position: 3
+    capture_position: [-240, 300, 0, 90]
+    bounding_boxes:
+      - [400, 300, 2100, 1600]
+
 
 reload_position: [0, 580, 0, 0]
 
@@ -37,12 +86,6 @@ robot:
   jump_z_lim: -18
   # z_insert: -150 # all the way
   # z_insert: -80
-
-boundary:
-  x_min: 400
-  x_max: 2100
-  y_min: 300
-  y_max: 1600
 
 camera:
   # 45010 for longfu calibration

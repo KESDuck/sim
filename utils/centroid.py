@@ -18,13 +18,13 @@ class Centroid:
     robot_y: float
     idx: int = 0
     idx_final: int = 0
-    insert: bool = False
+    insert_flag: bool = False
     row: int = 0
     left: Optional['Centroid'] = None
     right: Optional['Centroid'] = None
 
     def __str__(self):
-        return f"Centroid(img_x={self.img_x}, img_y={self.img_y}, robot_x={self.robot_x}, robot_y={self.robot_y}, idx={self.idx}, idx_final={self.idx_final}, insert={self.insert}, row={self.row})"
+        return f"Centroid(img_x={self.img_x}, img_y={self.img_y}, robot_x={self.robot_x}, robot_y={self.robot_y}, idx={self.idx}, idx_final={self.idx_final}, insert_flag={self.insert_flag}, row={self.row})"
 
 
 class CentroidManager:
@@ -39,20 +39,22 @@ class CentroidManager:
         self.row_counter = 0
         self.last_processed_time = None  # Timestamp when processing last completed
 
-    def process_centroids(self, centroids):
+    def process_centroids(self, centroids, bounding_boxes=None):
         """
         Process centroids for robot use:
         1. Convert to Centroid objects if needed
-        2. Filter centroids within boundary
+        2. Filter centroids within bounding boxes
         3. Sort centroids by rows
         4. Convert to robot coordinates
         
         Args:
             centroids (list): List of (x, y) coordinates or Centroid objects
+            bounding_boxes (list): List of [x_min, y_min, x_max, y_max] bounding boxes
             
         Returns:
             list: Processed Centroid objects ready for robot use
         """
+        print(f"DEBUG: process_centroids called with {len(centroids) if centroids else 0} centroids")
         if centroids is None or len(centroids) == 0:
             self.centroids = []
             return []
@@ -63,17 +65,18 @@ class CentroidManager:
         else:
             raw_centroids = centroids
 
-        # Filter centroids to keep only those within boundary
-        filtered_centroids = self._filter_boundary_centroids(raw_centroids)
+        # Set insert_flag based on whether centroids are within bounding boxes
+        print(bounding_boxes) # temp for debugging
+        flagged_centroids = self._filter_boundary_centroids(raw_centroids, bounding_boxes)
 
-        # Sort the filtered centroids
-        sorted_centroids = self._sort_centroids(filtered_centroids)
+        # Sort the flagged centroids
+        sorted_centroids = self._sort_centroids(flagged_centroids)
 
         # Subsample the centroids and recalculate row indices
-        subsampled_centroids = self._subsample_centroids(sorted_centroids, interval=5)
+        # subsampled_centroids = self._subsample_centroids_evenly(sorted_centroids, row_subsample=6, centroid_subsample=6)
 
         # Convert to robot coordinates and store in the same objects
-        self.centroids = self._convert_to_robot_coords(subsampled_centroids)
+        self.centroids = self._convert_to_robot_coords(sorted_centroids)
 
         # Store timestamp when processing completed
         self.last_processed_time = time.time()
@@ -83,7 +86,7 @@ class CentroidManager:
 
     def get_row(self):
         """
-        Get the current row of centroids.
+        Get the current row of centroids, filtered by insert_flag=True.
         """
         # Check bounds
         if self.row_counter < 0 or self.row_counter >= len(self._row_indices):
@@ -98,7 +101,9 @@ class CentroidManager:
             # Last row - use all remaining centroids
             row_end = len(self.centroids)
             
-        return self.centroids[row_start:row_end]
+        # Filter centroids to only return those with insert_flag=True
+        row_centroids = self.centroids[row_start:row_end]
+        return [centroid for centroid in row_centroids if centroid.insert_flag]
 
 
     def next_row(self):
@@ -117,58 +122,123 @@ class CentroidManager:
             return False
         return time.time() - self.last_processed_time < 1.0  # 1 second threshold
 
-    def _filter_boundary_centroids(self, centroids):
+    def _filter_boundary_centroids(self, centroids, bounding_boxes=None):
         """
-        Filter centroids to keep only those within configured boundary.
+        Set insert_flag based on whether centroids are within bounding boxes.
         
         Args:
             centroids (list): List of Centroid objects
+            bounding_boxes (list): List of [x_min, y_min, x_max, y_max] bounding boxes
             
         Returns:
-            list: Filtered list of centroids within boundary
+            list: All centroids with insert_flag set based on boundary filtering
         """
         if not centroids:
             return []
         
-        # Get boundary values from config
-        x_min = config["boundary"]["x_min"]
-        x_max = config["boundary"]["x_max"]
-        y_min = config["boundary"]["y_min"]
-        y_max = config["boundary"]["y_max"]
+        # If no bounding boxes provided, set all insert_flags to True
+        if not bounding_boxes:
+            print(f"DEBUG: No bounding boxes provided, setting all {len(centroids)} centroids to insert_flag=True")
+            for centroid in centroids:
+                centroid.insert_flag = True
+            return centroids
         
-        # Filter centroids
-        return [centroid for centroid in centroids 
-                if x_min < centroid.img_x < x_max and y_min < centroid.img_y < y_max]
-    
-    def _subsample_centroids(self, centroids, interval=5):
-        """
-        Subsample centroids by taking every nth centroid and recalculate row indices.
+        print(f"DEBUG: Processing {len(centroids)} centroids with {len(bounding_boxes)} bounding boxes")
+        
+        # Set insert_flag for centroids: True if within any bounding box, False otherwise
+        inside_count = 0
+        for centroid in centroids:
+            centroid.insert_flag = False  # Default to False
+            for bbox in bounding_boxes:
+                x_min, y_min, x_max, y_max = bbox
+                if x_min < centroid.img_x < x_max and y_min < centroid.img_y < y_max:
+                    centroid.insert_flag = True
+                    inside_count += 1
+                    break  # Stop checking other boxes once we find a match
 
+        # print("DEBUG: centroids after filtering")
+        # print([f"{centroid.img_x}, {centroid.img_y}, {centroid.insert_flag}" for centroid in centroids])
+        
+        return centroids
+    
+    def _subsample_centroids_evenly(self, centroids, row_subsample, centroid_subsample):
+        """
+        Subsample centroids by evenly spacing rows and centroids within each row.
+        
         Args:
-            centroids (list): List of sorted Centroid objects with row information
-            interval (int): Take every nth centroid (default: 5)
+            centroids (list): List of sorted Centroid objects
+            row_subsample (int): Number of rows to select (evenly spaced)
+            centroid_subsample (int): Number of centroids per row to select (evenly spaced)
             
         Returns:
-            list: Subsampled list of Centroid objects with updated row indices
+            list: Subsampled centroids with updated row indices
         """
-        if not centroids:
-            self._row_indices = []
+        if not centroids or len(self._row_indices) == 0:
             return []
         
-        # Subsample the centroids
-        subsampled = [point for i, point in enumerate(centroids) if i % interval == 0]
+        total_rows = len(self._row_indices)
         
-        # Recalculate row indices based on subsampled centroids
-        self._row_indices = []
-        current_row = -1
+        # Step 1: Subsample rows evenly
+        if row_subsample >= total_rows:
+            # If we want more rows than available, use all rows
+            selected_row_indices = list(range(total_rows))
+        else:
+            # Calculate evenly spaced row indices
+            if row_subsample == 1:
+                selected_row_indices = [total_rows // 2]  # Middle row
+            else:
+                step = (total_rows - 1) / (row_subsample - 1)
+                selected_row_indices = [round(i * step) for i in range(row_subsample)]
         
-        for i, centroid in enumerate(subsampled):
-            if centroid.row != current_row:
-                # New row detected
-                current_row = centroid.row
-                self._row_indices.append(i)
+        subsampled_centroids = []
+        new_row_indices = []
         
-        return subsampled
+        # Step 2: For each selected row, subsample centroids evenly
+        for new_row_num, row_idx in enumerate(selected_row_indices):
+            # Get start and end indices for this row
+            row_start = self._row_indices[row_idx]
+            if row_idx + 1 < len(self._row_indices):
+                row_end = self._row_indices[row_idx + 1]
+            else:
+                row_end = len(centroids)
+            
+            row_centroids = centroids[row_start:row_end]
+            total_centroids_in_row = len(row_centroids)
+            
+            # Subsample centroids within this row
+            if centroid_subsample >= total_centroids_in_row:
+                # If we want more centroids than available, use all
+                selected_centroids = row_centroids
+            else:
+                # Calculate evenly spaced centroid indices within the row
+                if centroid_subsample == 1:
+                    selected_indices = [total_centroids_in_row // 2]  # Middle centroid
+                else:
+                    step = (total_centroids_in_row - 1) / (centroid_subsample - 1)
+                    selected_indices = [round(i * step) for i in range(centroid_subsample)]
+                
+                selected_centroids = [row_centroids[i] for i in selected_indices]
+            
+            # Update row numbers and add to result
+            new_row_indices.append(len(subsampled_centroids))
+            for centroid in selected_centroids:
+                # Create new centroid with updated row number
+                new_centroid = Centroid(
+                    img_x=centroid.img_x,
+                    img_y=centroid.img_y,
+                    robot_x=centroid.robot_x,
+                    robot_y=centroid.robot_y,
+                    idx=centroid.idx,
+                    idx_final=len(subsampled_centroids),
+                    insert_flag=centroid.insert_flag,
+                    row=new_row_num
+                )
+                subsampled_centroids.append(new_centroid)
+        
+        # Update row indices for the subsampled data
+        self._row_indices = new_row_indices
+        
+        return subsampled_centroids
     
     def _filter_test_centroids(self, centroids):
         """

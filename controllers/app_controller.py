@@ -82,6 +82,8 @@ class AppController(QObject):
     # batch processing constants
     QUEUE_BATCH_SIZE = 15
 
+    current_display_section = "5"
+
     def __init__(self):
         super().__init__()
         
@@ -115,8 +117,8 @@ class AppController(QObject):
         self.cross_manager = CrossPositionManager(self.homo_matrix)
         self.centroid_manager = CentroidManager(self.homo_matrix)
         
-        # Capture positions
-        self.capture_positions = config["capture_positions"]
+        # Section configurations (renamed from capture_positions to use section_config)
+        self.section_config = config["section_config"]
     
     def _init_ui_state(self):
         """Initialize UI state variables"""
@@ -170,7 +172,7 @@ class AppController(QObject):
         self.robot_status_message.emit(status_message)
     
     def _on_frame_processed(self, success):
-        """Handle completion of frame processing from the vision model"""
+        """Process centroids after capture and process"""
         if success:
             self._update_centroids()
             frame = self._get_frame_for_display(self.current_view_state)
@@ -192,18 +194,16 @@ class AppController(QObject):
     
     # ===== Frame Handling Methods =====
     
-    def capture_process_frame(self):
-        """Process frame when requested (e.g., via Process button)."""
-        if self.current_view_state == "live":
-            # In live mode, we're already capturing frames through the live_worker thread
-            # Just ensure the live capture is running
-            self.vision.live_capture()
-        else:
-            # For non-live states, stop live capture and get a single frame
-            self.vision.stop_live_capture()
-            if self.vision.capture_and_process():
-                frame = self._get_frame_for_display(self.current_view_state)
-                self._prepare_and_emit_frame(frame)
+    # def capture_process_frame(self):
+    #     """Process frame when requested (e.g., via Process button)."""
+    #     if self.current_view_state == "live":
+    #         # In live mode, we're already capturing frames through the live_worker thread
+    #         # Just ensure the live capture is running
+    #         self.vision.live_capture()
+    #     else:
+    #         # For non-live states, stop live capture and get a single frame
+    #         self.vision.stop_live_capture()
+    #         self.vision.capture_and_process()
     
     def _prepare_and_emit_frame(self, frame, draw_cells=True):
         """Draw cells and cross on frame then emit"""
@@ -213,8 +213,10 @@ class AppController(QObject):
         # Make a copy to avoid modifying the original
         frame = frame.copy()
         
-        # Draw boundary box from config
-        frame = draw_boundary_box(frame, config["boundary"])
+        # Draw bounding boxes from current section config
+        current_section = self.section_config.get(self.current_display_section, {})
+        bounding_boxes = current_section.get("bounding_boxes", [])
+        frame = draw_boundary_box(frame, bounding_boxes)
         
         # Add overlay with centroids if available and requested
         if draw_cells and self.current_view_state != "live" and self.centroid_manager.centroids is not None:
@@ -255,7 +257,11 @@ class AppController(QObject):
     
     def _update_centroids(self):
         """Helper method to update centroids data from the vision model."""
-        _centroids = self.centroid_manager.process_centroids(self.vision.centroids)
+        # Get bounding boxes from current section
+        current_section = self.section_config.get(self.current_display_section, {})
+        bounding_boxes = current_section.get("bounding_boxes", [])
+        
+        _centroids = self.centroid_manager.process_centroids(self.vision.centroids, bounding_boxes)
         self.cell_max_changed.emit(len(_centroids) - 1 if len(_centroids) > 0 else 0)
     
     # ===== UI Control Methods =====
@@ -273,14 +279,6 @@ class AppController(QObject):
         else:
             # For non-live states, stop live capture
             self.vision.stop_live_capture()
-            
-            # Edge case: If we're switching from live to paused and we don't have a stored frame,
-            # capture one first
-            if previous_state == "live" and self.vision.frame_camera_stored is None:
-                logger.info("Capturing a frame before switching to paused state")
-                self.vision.capture_and_process()
-            
-            # Emit the appropriate frame for this state
             frame = self._get_frame_for_display(state)
             self._prepare_and_emit_frame(frame)
 
@@ -387,7 +385,7 @@ class AppController(QObject):
             new_state: The target state to transition to
             reason: Reason for transition ("success", "timeout", "error", "failure")
         """
-        logger.info(f"Operation state transition: {self.current_operation_state} -> {new_state} (reason: {reason})")
+        logger.info(f"Operation state transition: {self.current_operation_state} ➡️ {new_state} (reason: {reason})")
         
         # If we're stopping, don't allow transitions to non-idle states
         if hasattr(self, 'stopping') and self.stopping and new_state != self.STATE_IDLE:
@@ -400,7 +398,7 @@ class AppController(QObject):
         if new_state == self.STATE_MOVE_TO_CAPTURE:
             self._execute_move_capture()
         elif new_state == self.STATE_CAPTURING:
-            self._execute_capture()
+            self.execute_capture()
         elif new_state == self.STATE_MOVE_TO_RELOAD:
             self._execute_move_reload()
         elif new_state == self.STATE_QUEUEING:
@@ -430,8 +428,12 @@ class AppController(QObject):
             logger.error(f"Move failed: {e}")
             self.transition_to(self.STATE_IDLE, "error")
             
-    def _execute_capture(self):
-        """Execute the capture state"""
+    def execute_capture(self, no_robot=False):
+        """Execute the capture operation
+        
+        Args:
+            no_robot (bool): If True, skip state transitions and robot operations
+        """
         self.vision.stop_live_capture()
         time.sleep(2)
         
@@ -439,9 +441,10 @@ class AppController(QObject):
         for i in range(3):
             if self.vision.capture_and_process():
                 if self.centroid_manager.is_centroid_updated_recently():
-                    self.centroid_manager.row_counter = 0
-                    time.sleep(1)
-                    self.transition_to(self.STATE_MOVE_TO_RELOAD)
+                    if not no_robot:
+                        self.centroid_manager.row_counter = 0
+                        time.sleep(1)
+                        self.transition_to(self.STATE_MOVE_TO_RELOAD)
                     return
                 else:
                     logger.error("Centroid not updated recently")
@@ -453,7 +456,8 @@ class AppController(QObject):
         # Failed after retries
         logger.error("Failed to capture after multiple attempts")
         self.status_message.emit("Failed to capture image")
-        self.transition_to(self.STATE_IDLE, "error")
+        if not no_robot:
+            self.transition_to(self.STATE_IDLE, "error")
 
     def _execute_move_reload(self):
         """Move the robot to reload position"""
@@ -513,7 +517,10 @@ class AppController(QObject):
         """
         if start_idx >= len(centroids):
             # All centroids of this row sent
-            self.transition_to(self.STATE_LOADING_MAGAZINE)
+            if self.current_operation_mode == self.MODE_INSERT:
+                self.transition_to(self.STATE_LOADING_MAGAZINE)
+            else:
+                self.transition_to(self.STATE_TESTING)
             return
         
         end_idx = min(start_idx + self.QUEUE_BATCH_SIZE, len(centroids))
@@ -544,10 +551,8 @@ class AppController(QObject):
         self.robot.send(
             cmd=f"loadmagazine {num_screws}",
             expect=self.EXPECT_MAGAZINE_LOADED,
-            timeout=60.0,
-            on_success=lambda: self.transition_to(
-                self.STATE_INSERTING if self.current_operation_mode == self.MODE_INSERT else self.STATE_TESTING
-            ),
+            timeout=180.0,
+            on_success=lambda: self.transition_to(self.STATE_INSERTING),
             on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")
         )
 
@@ -592,19 +597,29 @@ class AppController(QObject):
     
     def get_section(self, section_id):
         """
-        Get the capture position for a given section_id.
+        Get the section configuration for a given section_id.
         
         Args:
-            section_id: Index of the section to retrieve
+            section_id: ID of the section to retrieve (1-9)
             
         Returns:
-            Tuple of (x, y, z, u) coordinates
+            Tuple of (x, y, z, u) coordinates from capture_position
         """
-        if section_id < 0 or section_id >= len(self.capture_positions):
-            raise ValueError(f"Invalid section_id: {section_id}. Must be between 0 and {len(self.capture_positions)-1}")
+        if section_id not in self.section_config:
+            raise ValueError(f"Invalid section_id: {section_id}. Must be one of {list(self.section_config.keys())}")
         
-        # Return all 4 elements (x, y, z, u) from the capture position
-        return self.capture_positions[section_id]
+        # Return capture_position from the section config
+        return self.section_config[section_id]["capture_position"]
+    
+    # def set_display_section(self, section_id):
+    #     """Set the current section for display (affects bounding boxes and centroid filtering)"""
+    #     if section_id in self.section_config:
+    #         self.current_display_section = section_id
+    #         logger.info(f"Display section changed to: {section_id}")
+    #         # Trigger frame refresh to show new bounding boxes
+    #         self.capture_process_frame()
+    #     else:
+    #         logger.warning(f"Invalid section_id: {section_id}")
     
     def change_speed(self, speed):
         """Change the robot speed"""
@@ -615,12 +630,16 @@ class AppController(QObject):
     def stop_all(self):
         """Stop the current robot operation"""
         logger.info("Stopping robot operation")
+        
+        # Clear any pending expectations to prevent delayed responses from causing state transitions
+        self.robot.clear_expectations()
+        
         self.robot.send(
             cmd="stop",
             expect=self.EXPECT_STOPPED,
-            timeout=2.0,
+            timeout=20.0,
             on_success=lambda: self.transition_to(self.STATE_IDLE, "stopped"),
-            on_timeout=None # No transition on timeout
+            on_timeout=lambda: self.transition_to(self.STATE_IDLE, "timeout")  # Ensure we reach IDLE even on timeout
         )
     # ===== Lifecycle Methods =====
     

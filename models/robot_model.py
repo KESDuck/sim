@@ -100,7 +100,7 @@ class RobotModel(QObject):
         # Setup reconnect timer
         self.reconnect_timer = QTimer()
         self.reconnect_timer.timeout.connect(self._attempt_reconnect)
-        self.reconnect_timer.setInterval(3*1000) # Connect every 3s
+        self.reconnect_timer.setInterval(1000) # Connect every 1s
         
         # Setup timeout checker
         self.timeout_timer = QTimer()
@@ -130,7 +130,7 @@ class RobotModel(QObject):
     def _attempt_reconnect(self):
         """Attempt to reconnect to the robot if not connected."""
         if self.robot_state == self.DISCONNECT:
-            logger.info("Attempting to reconnect to robot...")
+            logger.debug("🛜🔄 Attempting to reconnect to robot...")
             self.connect_to_server()
 
     def _on_connected(self):
@@ -158,14 +158,14 @@ class RobotModel(QObject):
             on_timeout=on_timeout
         )
         self._expectations.append(expectation)
-        logger.debug(f"🔔: {expected_response} (timeout: {timeout}s)")
+        logger.debug(f"⚪️ Expectation added: {expected_response} (timeout: {timeout}s)")
 
     def _on_raw_response(self, resp: str):
         """Process raw responses from the socket and handle expectations."""
         # Handle expectations
         for exp in list(self._expectations):
             if resp == exp.expected_response:
-                logger.debug(f"🔕: {exp.expected_response} (timeout: {exp.timeout}s)")
+                logger.debug(f"🟢 Expectation fulfilled: {exp.expected_response} (timeout: {exp.timeout}s)")
                 self._expectations.remove(exp)
                 if exp.on_success:
                     exp.on_success()  # Drive the state machine forward
@@ -206,7 +206,7 @@ class RobotModel(QObject):
         # Iterate over a copy of the list, as we might modify the original list
         for expectation in self._expectations[:]:
             if current_time - expectation.start_time > expectation.timeout:
-                logger.error(f"Expectation timed out: {expectation.expected_response}")
+                logger.error(f"🔴 Expectation timed out: {expectation.expected_response}")
 
                 self._expectations.remove(expectation)
                 
@@ -284,6 +284,14 @@ class RobotModel(QObject):
                 
             return True
     
+    def clear_expectations(self):
+        """Clear all pending expectations without calling their callbacks."""
+        if self._expectations:
+            logger.info(f"Clearing {len(self._expectations)} pending expectations")
+            for exp in self._expectations:
+                logger.debug(f"🟠 Clearing expectation: {exp.expected_response}")
+            self._expectations.clear()
+    
     def close(self):
         """Close the connection to the robot."""
         logger.info("Closing robot connection")
@@ -294,6 +302,9 @@ class RobotModel(QObject):
         for timer in self._simulation_timers:
             timer.stop()
         self._simulation_timers.clear()
+        
+        # Clear any pending expectations
+        self.clear_expectations()
         
         if not self.simulated and self.socket:
             self.socket.close()

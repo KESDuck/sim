@@ -2,6 +2,7 @@ import cv2 as cv
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, QMutex
 import time
 import yaml
+import numpy as np
 
 from utils.logger_config import get_logger
 from models.camera import CameraHandler
@@ -105,7 +106,7 @@ class VisionModel(QObject):
         
         # image frame and points
         self.frame_camera_live = None  # right after undistort
-        self.frame_camera_stored = None
+        self.frame_camera_stored = np.zeros((1944, 2592, 3), dtype=np.uint8)  # Initialize with black frame
         self.frame_threshold = None  # right after threshold
         self.frame_contour = None  # with contour
         self.centroids = None  # list of centroids

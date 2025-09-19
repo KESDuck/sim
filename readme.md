@@ -171,7 +171,7 @@ TODO: 25-08-07 this might need some updating
 - Set expectation for second status update
 - Status update include timestamp
 
-## Homography Calibration
+## Calibration
 Teach robot tooling (in Robot Manager) 
 1. setup hardware:
     - Have a matrix of known points. The points should be at Z-axis of the insertion plate, plane parallel to the ground. (Place it slightly above the 3x3)
@@ -230,7 +230,16 @@ HMI
 - HMI system can get buggy easily - need testing
 - TCP/IP transmission takes time - feed all data to robot or dual process 
 - Robot moving fast can be shacky  
-  
+
+## 500 screws - added 2025-09-16
+- Metal construction to handle large amount of steel screw rubbing
+- Magazine feeder to speed up insertion per second
+
+**Reflections**
+- Screw can get intercepted by screw on the rail.
+- Need longer vertical stroke
+- 
+
 ## 1000 screws (TODO)  
 Insert the 1 whole plate with high accuracy  
 Multiple insertion region for large-area processing  

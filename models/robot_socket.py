@@ -33,7 +33,7 @@ class RobotSocket(QObject):
             self.socket.connectToHost(self.ip, self.port)
             
             # Return immediately, don't wait
-            logger.info(f"Connecting to {self.ip}:{self.port}...")
+            logger.debug(f"Connecting to {self.ip}:{self.port}...")
             
             # Return true to indicate connection attempt started successfully
             return True
@@ -54,7 +54,7 @@ class RobotSocket(QObject):
             # Send command
             self.socket.write((command + "\r\n").encode())
             self.socket.flush()
-            logger.info(f"📤: {command}")
+            logger.info(f"🛜: {command}")
             return True
         except Exception as e:
             logger.error(f"Error sending command: {e}")

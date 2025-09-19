@@ -50,8 +50,8 @@ class EngineerTabView(QWidget):
         self.selection_layout = QHBoxLayout(self.selection_group)
         self.selection_layout.addWidget(QLabel("Section:"))
         self.ui_selection_dropdown = QComboBox()
-        self.ui_selection_dropdown.addItems(["0", "1", "2"])
-        self.ui_selection_dropdown.setCurrentText("1")  # Set default to 1
+        self.ui_selection_dropdown.addItems(["1", "2", "3", "4", "5", "6", "7", "8", "9"])
+        self.ui_selection_dropdown.setCurrentText("5")  # Set default to 5
         self.selection_layout.addWidget(self.ui_selection_dropdown)
         self.controls_layout.addWidget(self.selection_group)
 
@@ -68,6 +68,11 @@ class EngineerTabView(QWidget):
         self.ui_capture_button = QPushButton("Capture and Process", self)
         self.ui_capture_button.clicked.connect(self.handle_capture_button)
         self.controls_layout.addWidget(self.ui_capture_button)
+
+        # Execute capture button
+        self.ui_execute_capture_button = QPushButton("Execute Capture", self)
+        self.ui_execute_capture_button.clicked.connect(self.handle_execute_capture_button)
+        self.controls_layout.addWidget(self.ui_execute_capture_button)
 
         # Save frame button
         self.ui_save_frame_button = QPushButton("Save Frame", self)
@@ -195,4 +200,8 @@ class EngineerTabView(QWidget):
     def handle_capture_button(self):
         """Handle capture button click by using the current section"""
         section_id = int(self.ui_selection_dropdown.currentText())
-        self.controller.capture_section(section_id) 
+        self.controller.capture_section(section_id)
+    
+    def handle_execute_capture_button(self):
+        """Handle execute capture button click"""
+        self.controller.execute_capture(no_robot=True) 
