@@ -53,6 +53,7 @@ class AppController(QObject):
     frame_updated = pyqtSignal(object)
     status_message = pyqtSignal(str)
     robot_status_message = pyqtSignal(str)
+    section_changed = pyqtSignal(str)
 
     # State machine states
     STATE_IDLE = "IDLE"
@@ -100,6 +101,9 @@ class AppController(QObject):
         self._connect_signals()
 
         self.robot.connect_to_server()
+        
+        # Ensure UI is synchronized with initial section
+        self.section_changed.emit(self.current_display_section)
     
     # ===== Initialization Methods =====
     
@@ -612,26 +616,32 @@ class AppController(QObject):
         Get the section configuration for a given section_id.
         
         Args:
-            section_id: ID of the section to retrieve (1-9)
+            section_id: ID of the section to retrieve (1-9, can be int or str)
             
         Returns:
             Tuple of (x, y, z, u) coordinates from capture_position
         """
-        if section_id not in self.section_config:
+        # Convert to string to match section_config keys
+        section_str = str(section_id)
+        if section_str not in self.section_config:
             raise ValueError(f"Invalid section_id: {section_id}. Must be one of {list(self.section_config.keys())}")
         
         # Return capture_position from the section config
-        return self.section_config[section_id]["capture_position"]
+        return self.section_config[section_str]["capture_position"]
     
-    # def set_display_section(self, section_id):
-    #     """Set the current section for display (affects bounding boxes and centroid filtering)"""
-    #     if section_id in self.section_config:
-    #         self.current_display_section = section_id
-    #         logger.info(f"Display section changed to: {section_id}")
-    #         # Trigger frame refresh to show new bounding boxes
-    #         self.capture_process_frame()
-    #     else:
-    #         logger.warning(f"Invalid section_id: {section_id}")
+    def set_display_section(self, section_id):
+        """Set the current section for display (affects bounding boxes and centroid filtering)"""
+        section_str = str(section_id)
+        if section_str in self.section_config:
+            old_section = self.current_display_section
+            self.current_display_section = section_str
+            
+            # Emit signal if section actually changed
+            if old_section != section_str:
+                self.section_changed.emit(section_str)
+            
+        else:
+            logger.warning(f"Invalid section_id: {section_id}. Available sections: {list(self.section_config.keys())}")
     
     def change_speed(self, speed):
         """Change the robot speed"""

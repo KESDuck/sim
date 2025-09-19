@@ -24,6 +24,7 @@ class AppView(QWidget):
         # Connect signals from controller to view methods
         self.controller.frame_updated.connect(self.engineer_tab.update_display)
         self.controller.status_message.connect(self.engineer_tab.update_status)
+        self.controller.section_changed.connect(self.engineer_tab.update_section_display)
         
         # Handle Ctrl+C to safely close app
         signal.signal(signal.SIGINT, lambda signal_received, frame: self.close())

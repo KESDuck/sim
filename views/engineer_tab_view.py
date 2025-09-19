@@ -52,6 +52,7 @@ class EngineerTabView(QWidget):
         self.ui_selection_dropdown = QComboBox()
         self.ui_selection_dropdown.addItems(["1", "2", "3", "4", "5", "6", "7", "8", "9"])
         self.ui_selection_dropdown.setCurrentText("5")  # Set default to 5
+        self.ui_selection_dropdown.currentTextChanged.connect(self.section_changed)
         self.selection_layout.addWidget(self.ui_selection_dropdown)
         self.controls_layout.addWidget(self.selection_group)
 
@@ -174,6 +175,19 @@ class EngineerTabView(QWidget):
         """Handle view state change from UI"""
         # logger.info(f"View state: {state}")
         self.controller.set_view_state(state)
+    
+    def section_changed(self, section_id):
+        """Handle section change from UI dropdown"""
+        logger.info(f"Section changed to: {section_id}")
+        self.controller.set_display_section(section_id)
+    
+    def update_section_display(self, section_id):
+        """Update UI dropdown when section changes programmatically"""
+        # Temporarily disconnect signal to avoid infinite loop
+        self.ui_selection_dropdown.currentTextChanged.disconnect()
+        self.ui_selection_dropdown.setCurrentText(section_id)
+        # Reconnect signal
+        self.ui_selection_dropdown.currentTextChanged.connect(self.section_changed)
     
     def update_cross_position(self, scene_pos):
         """
