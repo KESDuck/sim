@@ -54,6 +54,8 @@ class AppController(QObject):
     status_message = pyqtSignal(str)
     robot_status_message = pyqtSignal(str)
     section_changed = pyqtSignal(str)
+    position_updated = pyqtSignal(float, float, float, float)  # img_x, img_y, robot_x, robot_y
+    state_mode_updated = pyqtSignal(str, str)  # state, mode
 
     # State machine states
     STATE_IDLE = "IDLE"
@@ -104,6 +106,9 @@ class AppController(QObject):
         
         # Ensure UI is synchronized with initial section
         self.section_changed.emit(self.current_display_section)
+        
+        # Emit initial state/mode
+        self.state_mode_updated.emit(self.current_operation_state, self.current_operation_mode)
     
     # ===== Initialization Methods =====
     
@@ -346,6 +351,11 @@ class AppController(QObject):
         
         # Get position info including robot coordinates
         position_info = self.cross_manager.get_position_info()
+        cam_x, cam_y = self.cross_manager.cam_xy
+        robot_x, robot_y = self.cross_manager.robot_xy if self.cross_manager.robot_xy is not None else (0.0, 0.0)
+        
+        # Emit position update signal
+        self.position_updated.emit(float(cam_x), float(cam_y), float(robot_x), float(robot_y))
         
         # Emit status message
         log_msg = f"Cross position updated: {position_info}"
@@ -397,6 +407,9 @@ class AppController(QObject):
             return
             
         self.current_operation_state = new_state
+        
+        # Emit state/mode update signal
+        self.state_mode_updated.emit(self.current_operation_state, self.current_operation_mode)
         
         # Execute state entry action
         if new_state == self.STATE_MOVE_TO_CAPTURE:

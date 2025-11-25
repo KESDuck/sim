@@ -14,6 +14,7 @@ with open('config.yml', 'r') as file:
 
 if __name__ == "__main__":
     app = QApplication([])
+    app.setStyle("Fusion")  # Match A1 demo styling
     
     # Create controller first
     controller = AppController()
