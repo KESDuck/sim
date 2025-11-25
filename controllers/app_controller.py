@@ -159,8 +159,6 @@ class AppController(QObject):
         
         # Connect vision signals
         self.vision.frame_processed.connect(self._on_frame_processed)
-        self.vision.live_worker.frame_ready.connect(self._on_live_frame_ready)
-        self.vision.live_worker.error_occurred.connect(self._on_camera_error)
         
         # Initial status message
         self.status_message.emit("Press R Key to note current cross position")
@@ -189,17 +187,6 @@ class AppController(QObject):
         else:
             logger.error("Process image failure")
             self.status_message.emit("Process image failure")
-            
-    def _on_live_frame_ready(self, frame):
-        """Handle live frame updates from the live camera thread"""
-        if self.current_view_state == "live" and self.current_tab == "Engineer":
-            self.vision.frame_camera_live = frame
-            self._prepare_and_emit_frame(frame, draw_cells=False)
-    
-    def _on_camera_error(self, error_message):
-        """Handle camera error messages from the worker thread"""
-        logger.error(f"Camera error: {error_message}")
-        self.status_message.emit(error_message)
     
     # ===== Frame Handling Methods =====
     
@@ -228,7 +215,7 @@ class AppController(QObject):
         frame = draw_boundary_box(frame, bounding_boxes)
         
         # Add overlay with centroids if available and requested
-        if draw_cells and self.current_view_state != "live" and self.centroid_manager.centroids is not None:
+        if draw_cells and self.centroid_manager.centroids is not None:
             frame = draw_points(
                 frame, 
                 self.centroid_manager.centroids, 
@@ -252,9 +239,7 @@ class AppController(QObject):
     
     def _get_frame_for_display(self, view_state):
         """Get appropriate frame based on view state."""
-        if view_state == "live":
-            return self.vision.frame_camera_live
-        elif view_state == "paused orig":
+        if view_state == "paused orig":
             return self.vision.frame_camera_stored
         elif view_state == "paused thres":
             return self.vision.frame_threshold
@@ -276,40 +261,23 @@ class AppController(QObject):
     # ===== UI Control Methods =====
     
     def set_view_state(self, state):
-        """Update the current view state: live, paused orig, paused thres, paused contours."""
+        """Update the current view state: paused orig, paused thres, paused contours."""
         previous_state = self.current_view_state
         self.current_view_state = state
         logger.info(f"View state changed to: {state}")
         
-        # Adjust camera based on view state
-        if state == "live" and self.current_tab == "Engineer":
-            # For live view, use the background thread
-            self.vision.live_capture()
-        else:
-            # For non-live states, stop live capture
-            self.vision.stop_live_capture()
-            frame = self._get_frame_for_display(state)
-            self._prepare_and_emit_frame(frame)
+        # Get frame for display
+        frame = self._get_frame_for_display(state)
+        self._prepare_and_emit_frame(frame)
 
     def set_current_tab(self, tab_name):
         """Set the current active tab."""
         self.current_tab = tab_name
         logger.info(f"Active tab changed to: {tab_name}")
         
-        # If changing tabs, update live camera state
-        if self.current_view_state == "live":
-            if tab_name == "Engineer":
-                # Enable live camera in Engineer tab with live view
-                self.vision.live_capture()
-            else:
-                # Disable live camera in other tabs
-                self.vision.stop_live_capture()
-                # Emit a single frame for the current state
-                frame = self._get_frame_for_display(self.current_view_state)
-                self._prepare_and_emit_frame(frame)
-        else:
-            # For non-live states, always ensure live camera is stopped
-            self.vision.stop_live_capture()
+        # Emit a frame for the current state
+        frame = self._get_frame_for_display(self.current_view_state)
+        self._prepare_and_emit_frame(frame)
 
     def save_current_frame(self):
         """Save the current displayed frame (with overlays) to disk."""
@@ -366,9 +334,6 @@ class AppController(QObject):
         frame = self._get_frame_for_display(self.current_view_state)
         self._prepare_and_emit_frame(frame)
         
-    def live_capture(self):
-        """Start live camera capture."""
-        return self.vision.live_capture()
 
     # ===== State Machine Methods =====
     
@@ -451,8 +416,6 @@ class AppController(QObject):
         Args:
             no_robot (bool): If True, skip state transitions and robot operations
         """
-        self.vision.stop_live_capture()
-        time.sleep(2)
         
         # Try to capture and process image
         for i in range(3):

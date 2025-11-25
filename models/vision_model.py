@@ -1,5 +1,5 @@
 import cv2 as cv
-from PyQt5.QtCore import QObject, pyqtSignal, QThread, QMutex
+from PyQt5.QtCore import QObject, pyqtSignal
 import time
 import yaml
 import numpy as np
@@ -13,80 +13,10 @@ logger = get_logger("Vision")
 with open('config.yml', 'r') as file:
     config = yaml.safe_load(file)
 
-class LiveCameraWorker(QThread):
-    """
-    Worker thread for live camera view only.
-    This avoids UI freezing during continuous camera display.
-    """
-    frame_ready = pyqtSignal(object)  # Signal to emit when a frame is captured
-    error_occurred = pyqtSignal(str)  # Signal for error reporting
-
-    def __init__(self, camera):
-        super().__init__()
-        self.camera = camera
-        self.mutex = QMutex()
-        self.stopped = False
-        self.paused = True
-        
-        # For tracking consecutive failures
-        self.consecutive_failures = 0
-        self.max_failures = 3
-        
-    def run(self):
-        """Thread main loop for live camera feed"""
-        while not self.stopped:
-            self.mutex.lock()
-            is_paused = self.paused
-            self.mutex.unlock()
-            
-            if is_paused:
-                time.sleep(0.1)  # Sleep while paused
-                continue
-                
-            try:
-                frame = self.camera.get_frame()
-                if frame is not None:
-                    self.frame_ready.emit(frame)
-                    self.consecutive_failures = 0
-                else:
-                    self.consecutive_failures += 1
-                    if self.consecutive_failures >= self.max_failures:
-                        # Just report the error, don't try to reconnect automatically
-                        self.error_occurred.emit("Camera not responding - use reconnect button if needed. (Might need to restart the PC)")
-                        
-                        self.consecutive_failures = 0
-                        # Add delay to prevent too many error messages
-                        time.sleep(1.0)
-            except Exception as e:
-                self.error_occurred.emit(f"Camera error: {str(e)}")
-                time.sleep(0.5)
-                
-            time.sleep(1./config["vision"]["update_frequency"])  # configurable frame rate
-        
-    def pause(self):
-        """Pause the live feed"""
-        self.mutex.lock()
-        self.paused = True
-        self.mutex.unlock()
-        
-    def resume(self):
-        """Resume the live feed"""
-        self.mutex.lock()
-        self.paused = False
-        self.mutex.unlock()
-        
-    def stop(self):
-        """Stop the worker thread"""
-        self.mutex.lock()
-        self.stopped = True
-        self.mutex.unlock()
-        self.wait()
-
 class VisionModel(QObject):
     """
     Model that handles vision processing.
     Captures frames and processes them to identify centroids.
-    Live view runs in a thread, but processing is synchronous.
     """
     # Define signals for communication with controller
     frame_processed = pyqtSignal(bool)  # Signal to indicate processing completion
@@ -97,15 +27,8 @@ class VisionModel(QObject):
         if self.camera.initialize_camera():
             # Get first frame to verify camera
             self.get_first_frame()
-
-        # Setup the live camera worker thread
-        self.live_worker = LiveCameraWorker(self.camera)
-        self.live_worker.frame_ready.connect(self.handle_live_frame)
-        self.live_worker.error_occurred.connect(self.handle_error)
-        self.live_worker.start()
         
         # image frame and points
-        self.frame_camera_live = None  # right after undistort
         self.frame_camera_stored = np.zeros((1944, 2592, 3), dtype=np.uint8)  # Initialize with black frame
         self.frame_threshold = None  # right after threshold
         self.frame_contour = None  # with contour
@@ -119,36 +42,12 @@ class VisionModel(QObject):
         else:
             logger.error("Failed to get first frame from camera")
 
-    def live_capture(self) -> bool:
-        """
-        Start live capture mode
-        """
-        self.live_worker.resume()
-        return True
-        
-    def stop_live_capture(self):
-        """
-        Stop live capture mode
-        """
-        self.live_worker.pause()
-
-    def handle_live_frame(self, frame):
-        """Handle frames from the worker in live mode"""
-        self.frame_camera_live = frame
-
     def capture_and_process(self) -> bool:
         """
         Capture frame and process to find centroids
         This is a blocking call - UI will freeze during processing
         Returns True if capture and process succeed else False
         """
-        # Ensure live worker is paused to avoid camera conflicts
-        self.live_worker.pause()
-        
-        # Add a small delay to ensure the worker thread has fully paused
-        # and isn't in the middle of retrieving a frame
-        time.sleep(0.1)
-        
         # Parameters for processing
         threshold_value = 135
         min_area = 2700  # 52x52
@@ -207,17 +106,9 @@ class VisionModel(QObject):
         # Signal processing complete
         self.frame_processed.emit(True)
         return True
-
-    def handle_error(self, error_message):
-        """Handle errors from the live camera worker"""
-        logger.error(f"Camera worker error: {error_message}")
         
     def close(self):
         """Clean up resources"""
-        # Stop the worker thread
-        if hasattr(self, 'live_worker'):
-            self.live_worker.stop()
-            
         # Release the camera
         if hasattr(self.camera, 'release') and callable(self.camera.release):
             self.camera.release() 

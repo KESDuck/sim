@@ -2,7 +2,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QPushButton, QVBoxLayout, 
                            QHBoxLayout, QWidget, 
                            QSpinBox, QLabel, QGroupBox, QButtonGroup,
-                           QGraphicsView, QGraphicsScene, QTextEdit)
+                           QGraphicsView, QGraphicsScene, QTextEdit, QScrollArea)
 from PyQt5.QtGui import QImage, QPixmap, QFont
 
 from utils.logger_config import get_logger
@@ -28,7 +28,15 @@ class EngineerTabView(QWidget):
         
     def setup_ui(self):
         """Initialize the engineer tab interface."""
-        layout = QVBoxLayout(self)
+        # Create scroll area
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Create content widget
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(20)
         
@@ -76,17 +84,6 @@ class EngineerTabView(QWidget):
         frame_type_layout.addWidget(self.frame_type_contours_btn)
         frame_type_layout.addStretch()
         frame_layout.addLayout(frame_type_layout)
-        
-        # Live view toggle
-        live_layout = QHBoxLayout()
-        self.live_view_button = QPushButton("Live view: OFF")
-        self.live_view_button.setFont(self.font_medium)
-        self.live_view_button.setCheckable(True)
-        self.live_view_button.setMinimumHeight(35)
-        self.live_view_button.clicked.connect(self.on_live_view_toggled)
-        live_layout.addWidget(self.live_view_button)
-        live_layout.addStretch()
-        # frame_layout.addLayout(live_layout)
         
         # Show centroids and bounding boxes
         centroids_layout = QHBoxLayout()
@@ -232,6 +229,14 @@ class EngineerTabView(QWidget):
         
         layout.addStretch()
         
+        # Set content widget to scroll area
+        scroll_area.setWidget(content_widget)
+        
+        # Create main layout for the tab and add scroll area
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(scroll_area)
+        
         # Scene will be set by app_view (shared scene)
         self.scene = None
         self.pixmap_item = None
@@ -248,15 +253,6 @@ class EngineerTabView(QWidget):
             self.frame_type_threshold_btn.setChecked(True)
         elif state == "paused contours":
             self.frame_type_contours_btn.setChecked(True)
-    
-    def on_live_view_toggled(self):
-        """Handle live view toggle"""
-        if self.live_view_button.isChecked():
-            self.live_view_button.setText("Live view: ON")
-            self.view_state_changed("live")
-        else:
-            self.live_view_button.setText("Live view: OFF")
-            self.view_state_changed("paused orig")
     
     def on_centroids_toggled(self):
         """Handle centroids toggle"""
@@ -293,14 +289,43 @@ class EngineerTabView(QWidget):
             vision_view.reset_view()
     
     def on_capture_image(self):
-        """Capture current image and show in secondary frame"""
-        if self.scene and self.scene.items():
-            pixmap_item = self.scene.items()[0]
-            if hasattr(pixmap_item, 'pixmap'):
-                captured_pixmap = pixmap_item.pixmap()
-                self.secondary_scene.clear()
-                self.secondary_scene.addPixmap(captured_pixmap)
-                self.secondary_view.fitInView(self.secondary_scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+        """Capture latest frame from camera and show in secondary frame"""
+        # Get latest frame from camera
+        frame = None
+        try:
+            # Try to get frame from camera directly (gets latest frame)
+            if hasattr(self.controller, 'vision') and hasattr(self.controller.vision, 'camera'):
+                frame = self.controller.vision.camera.get_frame()
+            
+            # If that fails, try to get the stored frame
+            if frame is None and hasattr(self.controller, 'vision'):
+                frame = self.controller.vision.frame_camera_stored
+            
+            if frame is None:
+                logger.warning("No frame available from camera")
+                return
+            
+            # Make a copy to ensure data is contiguous and safe
+            import numpy as np
+            frame = np.ascontiguousarray(frame)
+            
+            # Convert numpy array to QPixmap (same logic as update_display)
+            if len(frame.shape) == 3:
+                h, w, c = frame.shape
+                qimg = QImage(frame.data, w, h, w * c, QImage.Format_RGB888)
+            else:
+                h, w = frame.shape
+                qimg = QImage(frame.data, w, h, w, QImage.Format_Grayscale8)
+            
+            captured_pixmap = QPixmap.fromImage(qimg)
+            
+            # Display in secondary view
+            self.secondary_scene.clear()
+            self.secondary_scene.addPixmap(captured_pixmap)
+            self.secondary_view.fitInView(self.secondary_scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+            
+        except Exception as e:
+            logger.error(f"Error capturing image: {e}")
     
     def on_move_robot(self):
         """Move robot to specified coordinates"""
