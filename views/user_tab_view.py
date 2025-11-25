@@ -20,6 +20,9 @@ class UserTabView(QWidget):
         self.selected_section = 1
         self.setup_ui()
         
+        # Initialize control states (IDLE state)
+        self.update_control_states("IDLE", "IDLE MODE")
+        
     def setup_ui(self):
         """Initialize the user tab interface."""
         layout = QVBoxLayout(self)
@@ -158,7 +161,7 @@ class UserTabView(QWidget):
     def on_speed_selected(self, speed):
         """Handle speed selection"""
         # Map speed names to percentages
-        speed_map = {"slow": 20, "normal": 50, "fast": 80}
+        speed_map = {"slow": 20, "normal": 40, "fast": 80}
         speed_percent = speed_map.get(speed, 50)
         self.controller.change_speed(speed_percent)
     
@@ -171,3 +174,26 @@ class UserTabView(QWidget):
     def on_stop_insertion_clicked(self):
         """Handle stop insertion button click"""
         self.controller.stop_all()
+    
+    def update_control_states(self, state, mode):
+        """Update enabled/disabled state of controls based on current operation state"""
+        # Operating means not in IDLE state
+        is_operating = state != "IDLE"
+        
+        # Disable controls while operating
+        self.start_all_button.setEnabled(not is_operating)
+        
+        # Disable section buttons while operating
+        for btn in self.section_buttons:
+            btn.setEnabled(not is_operating)
+        
+        # Disable go to section and insert section buttons while operating
+        self.go_to_section_button.setEnabled(not is_operating)
+        self.insert_section_button.setEnabled(not is_operating)
+        
+        # Disable speed buttons while operating
+        self.speed_slow_button.setEnabled(not is_operating)
+        self.speed_normal_button.setEnabled(not is_operating)
+        self.speed_fast_button.setEnabled(not is_operating)
+        
+        # Stop button is always enabled (no need to change, already enabled by default)

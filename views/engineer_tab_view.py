@@ -1,6 +1,6 @@
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QPushButton, QVBoxLayout, 
-                           QHBoxLayout, QWidget, QComboBox, 
+                           QHBoxLayout, QWidget, 
                            QSpinBox, QLabel, QGroupBox, QButtonGroup,
                            QGraphicsView, QGraphicsScene, QTextEdit)
 from PyQt5.QtGui import QImage, QPixmap, QFont
@@ -86,7 +86,7 @@ class EngineerTabView(QWidget):
         self.live_view_button.clicked.connect(self.on_live_view_toggled)
         live_layout.addWidget(self.live_view_button)
         live_layout.addStretch()
-        frame_layout.addLayout(live_layout)
+        # frame_layout.addLayout(live_layout)
         
         # Show centroids and bounding boxes
         centroids_layout = QHBoxLayout()
@@ -153,13 +153,6 @@ class EngineerTabView(QWidget):
         calib_group.setFont(self.font_medium)
         calib_layout = QVBoxLayout()
         calib_layout.setSpacing(15)
-        
-        self.img_xy_label = QLabel("Img XY: -")
-        self.img_xy_label.setFont(self.font_normal)
-        self.robot_xy_label = QLabel("Robot XY: -")
-        self.robot_xy_label.setFont(self.font_normal)
-        calib_layout.addWidget(self.img_xy_label)
-        calib_layout.addWidget(self.robot_xy_label)
         
         # Capture image button
         self.capture_image_button = QPushButton("Capture image")
@@ -236,56 +229,6 @@ class EngineerTabView(QWidget):
         
         move_group.setLayout(move_layout)
         layout.addWidget(move_group)
-        
-        # Section selection
-        section_group = QGroupBox("Section selection")
-        section_group.setFont(self.font_medium)
-        section_layout = QHBoxLayout()
-        section_layout.addWidget(QLabel("Section:"))
-        self.ui_selection_dropdown = QComboBox()
-        self.ui_selection_dropdown.setFont(self.font_medium)
-        self.ui_selection_dropdown.addItems(["1", "2", "3", "4", "5", "6", "7", "8", "9"])
-        self.ui_selection_dropdown.setCurrentText("5")
-        self.ui_selection_dropdown.currentTextChanged.connect(self.section_changed)
-        section_layout.addWidget(self.ui_selection_dropdown)
-        section_group.setLayout(section_layout)
-        layout.addWidget(section_group)
-        
-        # Operation buttons
-        op_layout = QVBoxLayout()
-        op_layout.setSpacing(10)
-        
-        self.ui_capture_button = QPushButton("Capture and Process")
-        self.ui_capture_button.setFont(self.font_medium)
-        self.ui_capture_button.setMinimumHeight(35)
-        self.ui_capture_button.clicked.connect(self.handle_capture_button)
-        op_layout.addWidget(self.ui_capture_button)
-        
-        self.ui_execute_capture_button = QPushButton("Execute Capture")
-        self.ui_execute_capture_button.setFont(self.font_medium)
-        self.ui_execute_capture_button.setMinimumHeight(35)
-        self.ui_execute_capture_button.clicked.connect(self.handle_execute_capture_button)
-        op_layout.addWidget(self.ui_execute_capture_button)
-        
-        self.ui_test_button = QPushButton("Test")
-        self.ui_test_button.setFont(self.font_medium)
-        self.ui_test_button.setMinimumHeight(35)
-        self.ui_test_button.clicked.connect(self.handle_test_button)
-        op_layout.addWidget(self.ui_test_button)
-        
-        self.ui_insert_button = QPushButton("Insert")
-        self.ui_insert_button.setFont(self.font_medium)
-        self.ui_insert_button.setMinimumHeight(35)
-        self.ui_insert_button.clicked.connect(self.handle_insert_button)
-        op_layout.addWidget(self.ui_insert_button)
-        
-        self.ui_stop_button = QPushButton("Stop")
-        self.ui_stop_button.setFont(self.font_medium)
-        self.ui_stop_button.setMinimumHeight(35)
-        self.ui_stop_button.clicked.connect(self.controller.stop_all)
-        op_layout.addWidget(self.ui_stop_button)
-        
-        layout.addLayout(op_layout)
         
         layout.addStretch()
         
@@ -401,10 +344,7 @@ class EngineerTabView(QWidget):
         pass
     
     def update_position_info(self, img_x, img_y, robot_x, robot_y):
-        """Update position labels and click history"""
-        self.img_xy_label.setText(f"Img XY: ({img_x:.1f}, {img_y:.1f})")
-        self.robot_xy_label.setText(f"Robot XY: ({robot_x:.2f}, {robot_y:.2f})")
-        
+        """Update position labels and click history"""        
         # Add to history
         history_entry = f"Img ({img_x:.1f}, {img_y:.1f}) -> Robot ({robot_x:.2f}, {robot_y:.2f})"
         self.click_history.append(history_entry)
@@ -419,32 +359,6 @@ class EngineerTabView(QWidget):
         """Handle view state change from UI"""
         self.controller.set_view_state(state)
     
-    def section_changed(self, section_id):
-        """Handle section change from UI dropdown"""
-        logger.info(f"Section changed to: {section_id}")
-        self.controller.set_display_section(section_id)
-    
     def update_section_display(self, section_id):
-        """Update UI dropdown when section changes programmatically"""
-        self.ui_selection_dropdown.currentTextChanged.disconnect()
-        self.ui_selection_dropdown.setCurrentText(section_id)
-        self.ui_selection_dropdown.currentTextChanged.connect(self.section_changed)
-    
-    def handle_test_button(self):
-        """Handle test button click"""
-        section_id = int(self.ui_selection_dropdown.currentText())
-        self.controller.test_section(section_id)
-    
-    def handle_insert_button(self):
-        """Handle insert button click"""
-        section_id = int(self.ui_selection_dropdown.currentText())
-        self.controller.insert_section(section_id)
-    
-    def handle_capture_button(self):
-        """Handle capture button click"""
-        section_id = int(self.ui_selection_dropdown.currentText())
-        self.controller.capture_section(section_id)
-    
-    def handle_execute_capture_button(self):
-        """Handle execute capture button click"""
-        self.controller.execute_capture(no_robot=True)
+        """Update section display (no UI element, kept for compatibility)"""
+        pass

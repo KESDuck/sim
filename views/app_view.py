@@ -40,6 +40,7 @@ class AppView(QWidget):
         self.controller.robot_status_message.connect(self.update_robot_status)
         self.controller.position_updated.connect(self.engineer_tab.update_position_info)
         self.controller.state_mode_updated.connect(self.update_state_mode)
+        self.controller.state_mode_updated.connect(self.user_tab.update_control_states)
         
         # Handle Ctrl+C to safely close app
         signal.signal(signal.SIGINT, lambda signal_received, frame: self.close())
@@ -111,7 +112,7 @@ class AppView(QWidget):
         # Status strip
         status_strip = QFrame()
         status_strip.setFrameShape(QFrame.StyledPanel)
-        status_strip.setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc;")
+        status_strip.setStyleSheet("background-color: #353535; border: 1px solid #555555;")
         status_strip.setMinimumHeight(80)
         status_layout = QVBoxLayout(status_strip)
         status_layout.setContentsMargins(15, 10, 15, 10)
