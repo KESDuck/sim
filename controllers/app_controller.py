@@ -119,6 +119,7 @@ class AppController(QObject):
             port=config["robot"]["port"],
             simulated=config["robot"].get("simulated", False)
         )
+        self.motor_enabled = False
         self.vision = VisionModel(cam_type=config["cam_type"])
         
         # Initialize managers
@@ -128,6 +129,7 @@ class AppController(QObject):
         
         # Section configurations (renamed from capture_positions to use section_config)
         self.section_config = config["section_config"]
+        self.robot_limits = config["robot"].get("limits", {})
     
     def _init_ui_state(self):
         """Initialize UI state variables"""
@@ -278,6 +280,45 @@ class AppController(QObject):
         # Emit a frame for the current state
         frame = self._get_frame_for_display(self.current_view_state)
         self._prepare_and_emit_frame(frame)
+
+    def is_motor_enabled(self):
+        """Return the last requested motor state."""
+        return getattr(self, "motor_enabled", False)
+
+    def set_motor_power(self, enable: bool) -> bool:
+        """
+        Toggle robot motor power by sending 'motor on/off' command.
+        Returns True if command queued successfully.
+        """
+        command = "motor on" if enable else "motor off"
+        expect = "MOTOR_ON" if enable else "MOTOR_OFF"
+        status_message = "Motor ON" if enable else "Motor OFF"
+
+        def _on_success():
+            self.motor_enabled = enable
+            self.status_message.emit(status_message)
+            logger.info(status_message)
+
+        def _on_timeout():
+            logger.error("Motor command timeout")
+            self.status_message.emit("Motor command timeout")
+
+        sent = self.robot.send(
+            cmd=command,
+            expect=expect,
+            timeout=3.0,
+            on_success=_on_success,
+            on_timeout=_on_timeout
+        )
+
+        if not sent:
+            logger.error("Failed to send motor command")
+            self.status_message.emit("Failed to send motor command")
+            return False
+
+        # Optimistically record desired state until ack
+        self.motor_enabled = enable
+        return True
 
     def save_current_frame(self):
         """Save the current displayed frame (with overlays) to disk."""
@@ -443,6 +484,7 @@ class AppController(QObject):
         """Move the robot to reload position"""
         try:
             x, y, z, u = config["reload_position"]
+            self._ensure_robot_limits(x, y, z, "Reload position")
             self.robot.send(
                 cmd=f"move {x} {y} {z} {u}",
                 expect=self.EXPECT_POSITION_REACHED,
@@ -517,9 +559,17 @@ class AppController(QObject):
         
         end_idx = min(start_idx + self.QUEUE_BATCH_SIZE, len(centroids))
         batch = centroids[start_idx:end_idx]
+
+        valid_batch = [centroid for centroid in batch if self._within_robot_limits(centroid.robot_x, centroid.robot_y)]
+        skipped = len(batch) - len(valid_batch)
+        if skipped:
+            logger.warning(f"Skipping {skipped} centroid(s) outside robot XY limits")
+        if not valid_batch:
+            self._batch_send_centroids(centroids, end_idx)
+            return
         
         # Build the batch command
-        queue_cmd = "queue " + " ".join([f"{centroid.robot_x:.2f} {centroid.robot_y:.2f}" for centroid in batch])
+        queue_cmd = "queue " + " ".join([f"{centroid.robot_x:.2f} {centroid.robot_y:.2f}" for centroid in valid_batch])
         
         logger.info(f"Queue batch {start_idx}-{end_idx-1}: Start")
         self.robot.send(
@@ -604,7 +654,52 @@ class AppController(QObject):
             raise ValueError(f"Invalid section_id: {section_id}. Must be one of {list(self.section_config.keys())}")
         
         # Return capture_position from the section config
-        return self.section_config[section_str]["capture_position"]
+        capture_position = self.section_config[section_str]["capture_position"]
+        self._ensure_robot_limits(capture_position[0], capture_position[1], capture_position[2], f"Section {section_id}")
+        return capture_position
+    
+    def _within_robot_limits(self, x=None, y=None, z=None):
+        limits = getattr(self, "robot_limits", None)
+        if not limits:
+            return True
+        def in_range(value, minimum, maximum):
+            if value is None:
+                return True
+            if minimum is not None and value < minimum:
+                return False
+            if maximum is not None and value > maximum:
+                return False
+            return True
+        if not in_range(x, limits.get("x_min"), limits.get("x_max")):
+            return False
+        if not in_range(y, limits.get("y_min"), limits.get("y_max")):
+            return False
+        if not in_range(z, limits.get("z_min"), limits.get("z_max")):
+            return False
+        return True
+    
+    def _ensure_robot_limits(self, x=None, y=None, z=None, context="robot move"):
+        if self._within_robot_limits(x, y, z):
+            return
+        limits = self.robot_limits or {}
+        x_display = "None" if x is None else f"{x:.2f}"
+        y_display = "None" if y is None else f"{y:.2f}"
+        z_display = "None" if z is None else f"{z:.2f}"
+        limit_parts = []
+        if "x_min" in limits or "x_max" in limits:
+            limit_parts.append(f"X[{limits.get('x_min', '-inf')}, {limits.get('x_max', 'inf')}]")
+        if "y_min" in limits or "y_max" in limits:
+            limit_parts.append(f"Y[{limits.get('y_min', '-inf')}, {limits.get('y_max', 'inf')}]")
+        if "z_min" in limits or "z_max" in limits:
+            limit_parts.append(f"Z[{limits.get('z_min', '-inf')}, {limits.get('z_max', 'inf')}]")
+        limit_ranges = " ".join(limit_parts) if limit_parts else "No limits configured"
+        limit_msg = (
+            f"{context} coordinates ({x_display}, {y_display}, {z_display}) are outside robot limits "
+            f"{limit_ranges}"
+        )
+        logger.error(limit_msg)
+        self.status_message.emit(limit_msg)
+        raise ValueError(limit_msg)
     
     def set_display_section(self, section_id):
         """

@@ -171,6 +171,23 @@ class EngineerTabView(QWidget):
         
         calib_group.setLayout(calib_layout)
         layout.addWidget(calib_group)
+
+        # Robot motor control
+        motor_group = QGroupBox("Robot motor")
+        motor_group.setFont(self.font_medium)
+        motor_layout = QVBoxLayout()
+        self.motor_toggle_btn = QPushButton()
+        self.motor_toggle_btn.setFont(self.font_medium)
+        self.motor_toggle_btn.setCheckable(True)
+        self.motor_toggle_btn.setMinimumHeight(35)
+        self.motor_toggle_btn.clicked.connect(self.on_motor_toggle_clicked)
+        motor_layout.addWidget(self.motor_toggle_btn)
+        motor_group.setLayout(motor_layout)
+        layout.addWidget(motor_group)
+        initial_motor_state = False
+        if hasattr(self.controller, "is_motor_enabled"):
+            initial_motor_state = self.controller.is_motor_enabled()
+        self._update_motor_button(initial_motor_state)
         
         # Click history
         history_group = QGroupBox("Click History")
@@ -326,6 +343,33 @@ class EngineerTabView(QWidget):
             
         except Exception as e:
             logger.error(f"Error capturing image: {e}")
+    
+    def on_motor_toggle_clicked(self):
+        """Handle robot motor toggle button"""
+        desired_state = self.motor_toggle_btn.isChecked()
+        controller_has_method = hasattr(self.controller, "set_motor_power")
+        if not controller_has_method:
+            logger.error("Controller missing set_motor_power")
+            self._update_motor_button(False)
+            return
+        try:
+            success = self.controller.set_motor_power(desired_state)
+        except Exception as exc:
+            logger.error(f"Failed to toggle motor: {exc}")
+            success = False
+        if not success:
+            desired_state = not desired_state
+        final_state = desired_state
+        if hasattr(self.controller, "is_motor_enabled"):
+            final_state = self.controller.is_motor_enabled()
+        self._update_motor_button(final_state)
+
+    def _update_motor_button(self, enabled):
+        """Update motor toggle button text/state"""
+        self.motor_toggle_btn.blockSignals(True)
+        self.motor_toggle_btn.setChecked(enabled)
+        self.motor_toggle_btn.setText("Motor ON" if enabled else "Motor OFF")
+        self.motor_toggle_btn.blockSignals(False)
     
     def on_move_robot(self):
         """Move robot to specified coordinates"""

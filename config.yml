@@ -14,8 +14,8 @@ homo_matrix:
     # - [-0.104674253, -0.000046658, 596.0]
     # - [-0.000002858, 0.000000315, 1.000000000]
   # Avg Error: 0.075, see raw data in vision_homography_mapper.py
-  - [0.000134227, -0.105409095, 106.0] # 105
-  - [-0.105741448, 0.000593871, 602.5] # 604.5
+  - [0.000134227, -0.105409095, 105.7] # 105
+  - [-0.105741448, 0.000593871, 603.0] # 604.5
   - [-0.000000930, 0.000001675, 1.000000000]
 
 # 1 2 3
@@ -82,9 +82,13 @@ robot:
   simulated: false     # Enable simulated robot mode (no real hardware connection)
   ip: "192.168.0.1"  # Robot IP address
   port: 8501           # Robot TCP port
-  z_max: -16.5
-  z_min: -157
-  jump_z_lim: -18
+  limits:
+    x_min: -270
+    x_max: 270
+    y_min: 170
+    y_max: 420
+    z_min: -157
+    z_max: -16.5
   # z_insert: -150 # all the way
   # z_insert: -80
 

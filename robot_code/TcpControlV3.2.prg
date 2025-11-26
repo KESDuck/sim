@@ -50,9 +50,9 @@ Fend
 '--- ENTRY POINT ---------------------------------------------------
 Function Main
     ' Initialize robot
-    Motor On
+    Motor Off
     Power High
-    SpeedFactor 20
+    SpeedFactor 40
     Speed 100; Accel 50, 50
     SpeedS 100; AccelS 50, 50
     Off ioGripper
@@ -177,6 +177,25 @@ Function ProcessReceivedMessage
                     Else
                         Print "[ProcessReceivedMessage] WARNING robot busy" + Str$(RobotState)
                     EndIf
+
+                Case "motor"
+                    If NumTokens >= 2 Then
+                        String motorState$
+                        motorState$ = Tokens$(1)
+                        If motorState$ = "on" Or motorState$ = "ON" Then
+                            Motor On
+                            SendResponse "MOTOR_ON"
+                        ElseIf motorState$ = "off" Or motorState$ = "OFF" Then
+                            Motor Off
+                            SendResponse "MOTOR_OFF"
+                        Else
+                            Print "[ProcessReceivedMessage] Invalid motor command: ", motorState$
+                            SendResponse "INVALID_MOTOR"
+                        EndIf
+                    Else
+                        Print "[ProcessReceivedMessage] Motor command missing argument"
+                        SendResponse "INVALID_MOTOR"
+                    EndIf
                 
                 Case "queue"
                     
@@ -240,7 +259,7 @@ Function ProcessReceivedMessage
                         Integer screwCount
                         screwCount = Val(Tokens$(1))
                         ' For now just pause - future implementation will set IO based on screwCount
-                        Jump XY(0, 580, 0, 0) /L LimZ 0
+                        Jump XY(0, 435, -2, 0) /L LimZ -2
                         Pause
                         SendResponse "MAGAZINE_LOADED"
                         Print "[ProcessReceivedMessage] Magazine loaded with ", screwCount, " screws"
@@ -309,7 +328,7 @@ Function OperationProcessor
         Select RobotState
             Case 2  ' MOVING
                 Print "[OperationProcessor] Moving to position: (", MoveX, ", ", MoveY, ", ", MoveZ, ", ", MoveU, ")"
-                Jump XY(MoveX, MoveY, MoveZ, MoveU) /L
+                Jump XY(MoveX, MoveY, MoveZ, MoveU) /L LimZ -2
                 SendResponse "POSITION_REACHED"
                 SetRobotState 1  ' Return to IDLE
                 StopRequested = False  ' Reset stop flag
@@ -387,7 +406,7 @@ Function DoInsert(ByVal index As Integer)
     MoveY = Val(CoordinateQueue$(index, 1))
     Print "[DoInsert] Inserting at: (", MoveX, ", ", MoveY, ")"
 
-    Jump XY(MoveX, MoveY, 0, 0) /L LimZ 0 ' Moved to location
+    Jump XY(MoveX, MoveY, -2, 0) /L LimZ -2 ' Moved to location
     Wait 0.05
     On ioGripper ' Gripper grab
     Wait 0.05
@@ -395,7 +414,7 @@ Function DoInsert(ByVal index As Integer)
     Wait 0.3
     Off ioGripper ' Open gripper
     Wait 0.1
-    Move XY(MoveX, MoveY - 5, 0, 0) /L
+    ' Go Here -Y(10)
     Off ioFeeder ' Feeder retract
     'Wait 0.0
 
@@ -422,7 +441,7 @@ Function DoTest(ByVal index As Integer)
     Print "[DoTest] Testing at: (", MoveX, ", ", MoveY, ")"
 
     ' Move to position
-    Jump XY(MoveX, MoveY, 0, 0) /L LimZ 0
+    Jump XY(MoveX, MoveY, -2, 0) /L LimZ -2
     Wait 0.1
     On ioFeeder
     Wait 0.4 ' Feeder extend, must be greater than 0.3
@@ -453,5 +472,3 @@ Function ClearQueue
         CoordinateQueue$(i, 1) = ""
     Next i
 Fend
-
-
