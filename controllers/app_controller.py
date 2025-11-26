@@ -130,6 +130,8 @@ class AppController(QObject):
         # Section configurations (renamed from capture_positions to use section_config)
         self.section_config = config["section_config"]
         self.robot_limits = config["robot"].get("limits", {})
+        self.show_centroids = True
+        self.show_bounding_boxes = True
     
     def _init_ui_state(self):
         """Initialize UI state variables"""
@@ -192,16 +194,21 @@ class AppController(QObject):
     
     # ===== Frame Handling Methods =====
     
-    # def capture_process_frame(self):
-    #     """Process frame when requested (e.g., via Process button)."""
-    #     if self.current_view_state == "live":
-    #         # In live mode, we're already capturing frames through the live_worker thread
-    #         # Just ensure the live capture is running
-    #         self.vision.live_capture()
-    #     else:
-    #         # For non-live states, stop live capture and get a single frame
-    #         self.vision.stop_live_capture()
-    #         self.vision.capture_and_process()
+    def capture_process_frame(self):
+        """
+        Capture and process a frame, then refresh the main display.
+        Returns True on success.
+        """
+        success = self.vision.capture_and_process()
+        if success:
+            self._update_centroids()
+            frame = self._get_frame_for_display(self.current_view_state)
+            self._prepare_and_emit_frame(frame)
+            self.status_message.emit("Capture complete")
+        else:
+            logger.error("Capture/process failed")
+            self.status_message.emit("Capture failed")
+        return success
     
     def _prepare_and_emit_frame(self, frame, draw_cells=True):
         """Draw cells and cross on frame then emit"""
@@ -212,12 +219,13 @@ class AppController(QObject):
         frame = frame.copy()
         
         # Draw bounding boxes from current section config
-        current_section = self.section_config.get(self.current_display_section, {})
-        bounding_boxes = current_section.get("bounding_boxes", [])
-        frame = draw_boundary_box(frame, bounding_boxes)
+        if self.show_bounding_boxes:
+            current_section = self.section_config.get(self.current_display_section, {})
+            bounding_boxes = current_section.get("bounding_boxes", [])
+            frame = draw_boundary_box(frame, bounding_boxes)
         
         # Add overlay with centroids if available and requested
-        if draw_cells and self.centroid_manager.centroids is not None:
+        if draw_cells and self.show_centroids and self.centroid_manager.centroids is not None:
             frame = draw_points(
                 frame, 
                 self.centroid_manager.centroids, 
@@ -278,6 +286,18 @@ class AppController(QObject):
         logger.info(f"Active tab changed to: {tab_name}")
         
         # Emit a frame for the current state
+        frame = self._get_frame_for_display(self.current_view_state)
+        self._prepare_and_emit_frame(frame)
+
+    def set_show_centroids(self, enabled: bool):
+        """Toggle centroid overlay in frame rendering."""
+        self.show_centroids = enabled
+        frame = self._get_frame_for_display(self.current_view_state)
+        self._prepare_and_emit_frame(frame)
+
+    def set_show_bounding_boxes(self, enabled: bool):
+        """Toggle bounding box overlay in frame rendering."""
+        self.show_bounding_boxes = enabled
         frame = self._get_frame_for_display(self.current_view_state)
         self._prepare_and_emit_frame(frame)
 

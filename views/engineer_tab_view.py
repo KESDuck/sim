@@ -151,12 +151,22 @@ class EngineerTabView(QWidget):
         calib_layout = QVBoxLayout()
         calib_layout.setSpacing(15)
         
-        # Capture image button
+        # Preview / capture buttons
+        capture_button_row = QHBoxLayout()
+        capture_button_row.setSpacing(10)
+        self.preview_button = QPushButton("Preview")
+        self.preview_button.setFont(self.font_medium)
+        self.preview_button.setMinimumHeight(35)
+        self.preview_button.clicked.connect(self.on_preview_image)
+        capture_button_row.addWidget(self.preview_button)
+
         self.capture_image_button = QPushButton("Capture image")
         self.capture_image_button.setFont(self.font_medium)
         self.capture_image_button.setMinimumHeight(35)
         self.capture_image_button.clicked.connect(self.on_capture_image)
-        calib_layout.addWidget(self.capture_image_button)
+        capture_button_row.addWidget(self.capture_image_button)
+        capture_button_row.addStretch()
+        calib_layout.addLayout(capture_button_row)
         
         # Secondary frame for captured image
         secondary_frame_group = QGroupBox("Captured image")
@@ -273,13 +283,19 @@ class EngineerTabView(QWidget):
     
     def on_centroids_toggled(self):
         """Handle centroids toggle"""
-        # This is handled in controller's frame preparation
-        pass
+        enabled = self.show_centroids_btn.isChecked()
+        if hasattr(self.controller, "set_show_centroids"):
+            self.controller.set_show_centroids(enabled)
+        else:
+            logger.warning("Controller missing set_show_centroids")
     
     def on_bbox_toggled(self):
         """Handle bounding boxes toggle"""
-        # This is handled in controller's frame preparation
-        pass
+        enabled = self.show_bbox_btn.isChecked()
+        if hasattr(self.controller, "set_show_bounding_boxes"):
+            self.controller.set_show_bounding_boxes(enabled)
+        else:
+            logger.warning("Controller missing set_show_bounding_boxes")
     
     def on_zoom_in(self):
         """Handle zoom in button"""
@@ -305,7 +321,7 @@ class EngineerTabView(QWidget):
             vision_view = self.app_view.vision_view
             vision_view.reset_view()
     
-    def on_capture_image(self):
+    def on_preview_image(self):
         """Capture latest frame from camera and show in secondary frame"""
         # Get latest frame from camera
         frame = None
@@ -343,6 +359,15 @@ class EngineerTabView(QWidget):
             
         except Exception as e:
             logger.error(f"Error capturing image: {e}")
+
+    def on_capture_image(self):
+        """Trigger capture/process and display on main view"""
+        if hasattr(self.controller, "capture_process_frame"):
+            success = self.controller.capture_process_frame()
+            if not success:
+                logger.error("Capture image failed")
+        else:
+            logger.error("Controller missing capture_process_frame")
     
     def on_motor_toggle_clicked(self):
         """Handle robot motor toggle button"""
