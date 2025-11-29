@@ -20,13 +20,12 @@ class VisionModel(QObject):
     """
     # Define signals for communication with controller
     frame_processed = pyqtSignal(bool)  # Signal to indicate processing completion
+    camera_connection_status_changed = pyqtSignal(bool)  # Emitted when camera connection status changes (is_connected)
     
     def __init__(self, cam_type):
         super().__init__()
         self.camera = CameraHandler(cam_type=cam_type)
-        if self.camera.initialize_camera():
-            # Get first frame to verify camera
-            self.get_first_frame()
+        # Camera connection is now manual via UI (auto-connect attempted in controller)
         
         # image frame and points
         self.frame_camera_stored = np.zeros((1944, 2592, 3), dtype=np.uint8)  # Initialize with black frame
@@ -107,8 +106,27 @@ class VisionModel(QObject):
         self.frame_processed.emit(True)
         return True
         
+    def is_camera_connected(self) -> bool:
+        """Check if camera is connected."""
+        return self.camera.is_connected()
+    
+    def connect_camera(self) -> bool:
+        """Connect to camera. Returns True if connection successful."""
+        success = self.camera.initialize_camera()
+        self.camera_connection_status_changed.emit(success)
+        return success
+    
+    def reconnect_camera(self) -> bool:
+        """Reconnect to camera. Returns True if reconnection successful."""
+        # TODO: If CameraHandler becomes a QObject, this could directly call
+        #        self.camera.reconnect() and listen to its signal instead of wrapping
+        success = self.camera.reconnect()
+        self.camera_connection_status_changed.emit(success)
+        return success
+    
     def close(self):
         """Clean up resources"""
         # Release the camera
         if hasattr(self.camera, 'release') and callable(self.camera.release):
-            self.camera.release() 
+            self.camera.release()
+            self.camera_connection_status_changed.emit(False) 

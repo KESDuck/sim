@@ -22,7 +22,8 @@ DEVICES = {
     "192.168.0.1": "Robot",
     "192.168.0.2": "Camera",
     "192.168.0.7": "Macbook",
-    "192.168.0.8": "Dell"
+    "192.168.0.8": "Dell",
+    "192.168.0.10": "PLC"
 }
 
 async def check_ip(ip: str) -> Tuple[str, bool]:

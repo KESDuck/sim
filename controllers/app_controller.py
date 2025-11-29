@@ -6,6 +6,7 @@ import yaml
 from utils.logger_config import get_logger
 from utils.tools import map_image_to_robot, save_image, draw_cross, draw_points, add_border, draw_boundary_box
 from utils.centroid import Centroid, CentroidManager
+from utils.network_monitor import NetworkMonitor, DEVICES
 from models.robot_model import RobotModel
 from models.vision_model import VisionModel
 
@@ -56,6 +57,8 @@ class AppController(QObject):
     section_changed = pyqtSignal(str)
     position_updated = pyqtSignal(float, float, float, float)  # img_x, img_y, robot_x, robot_y
     state_mode_updated = pyqtSignal(str, str)  # state, mode
+    robot_connection_status_changed = pyqtSignal(bool)  # is_connected
+    camera_connection_status_changed = pyqtSignal(bool)  # is_connected
 
     # State machine states
     STATE_IDLE = "IDLE"
@@ -101,8 +104,9 @@ class AppController(QObject):
         
         # Connect signals
         self._connect_signals()
-
-        self.robot.connect_to_server()
+        
+        # Attempt auto-connect (graceful - don't fail if not connected)
+        self._attempt_auto_connect()
         
         # Ensure UI is synchronized with initial section
         self.section_changed.emit(self.current_display_section)
@@ -121,6 +125,10 @@ class AppController(QObject):
         )
         self.motor_enabled = False
         self.vision = VisionModel(cam_type=config["cam_type"])
+        
+        # Initialize network monitor
+        self.network_monitor = NetworkMonitor(ping_interval_ms=3000)
+        self.network_monitor.ping_status_changed.connect(self._on_ping_status_changed)
         
         # Initialize managers
         self.homo_matrix = config["homo_matrix"]
@@ -160,12 +168,30 @@ class AppController(QObject):
         self.robot.robot_connection_error.connect(self._on_robot_error)
         self.robot.robot_status.connect(self._on_robot_status)
         self.robot.error.connect(self._on_robot_error)
+        self.robot.connection_status_changed.connect(self.robot_connection_status_changed.emit)
         
         # Connect vision signals
         self.vision.frame_processed.connect(self._on_frame_processed)
+        self.vision.camera_connection_status_changed.connect(self.camera_connection_status_changed.emit)
         
         # Initial status message
         self.status_message.emit("Press R Key to note current cross position")
+    
+    def _attempt_auto_connect(self):
+        """Attempt to auto-connect to robot and camera (graceful - don't fail if not connected)"""
+        # Try to connect robot
+        try:
+            self.robot.connect_to_server()
+            logger.info("Auto-connect: Robot connection attempted")
+        except Exception as e:
+            logger.warning(f"Auto-connect: Robot connection failed (non-critical): {e}")
+        
+        # Try to connect camera
+        try:
+            self.vision.connect_camera()
+            logger.info("Auto-connect: Camera connection attempted")
+        except Exception as e:
+            logger.warning(f"Auto-connect: Camera connection failed (non-critical): {e}")
     
     # ===== Signal Handlers =====
     
@@ -181,6 +207,11 @@ class AppController(QObject):
     def _on_robot_status(self, status_message):
         """Handle robot status messages."""
         self.robot_status_message.emit(status_message)
+    
+    def _on_ping_status_changed(self, ip: str, is_online: bool):
+        """Handle ping status changes - emit signal for UI updates"""
+        # This will be handled by the view
+        pass
     
     def _on_frame_processed(self, success):
         """Process centroids after capture and process"""
@@ -760,8 +791,22 @@ class AppController(QObject):
         )
     # ===== Lifecycle Methods =====
     
+    
+    def start_network_monitoring(self):
+        """Start network ping monitoring"""
+        self.network_monitor.start_monitoring()
+    
+    def stop_network_monitoring(self):
+        """Stop network ping monitoring"""
+        self.network_monitor.stop_monitoring()
+    
+    def get_network_status(self, ip: str) -> bool:
+        """Get ping status for a device"""
+        return self.network_monitor.get_status(ip)
+    
     def close(self):
         """Clean up resources"""
+        self.network_monitor.stop_monitoring()
         self.robot.close()
         self.vision.close()
 

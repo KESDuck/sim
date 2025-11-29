@@ -2,8 +2,9 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QPushButton, QVBoxLayout, 
                            QHBoxLayout, QWidget, 
                            QSpinBox, QLabel, QGroupBox, QButtonGroup,
-                           QGraphicsView, QGraphicsScene, QTextEdit, QScrollArea)
-from PyQt5.QtGui import QImage, QPixmap, QFont
+                           QGraphicsView, QGraphicsScene, QTextEdit, QScrollArea,
+                           QGridLayout)
+from PyQt5.QtGui import QImage, QPixmap, QFont, QColor, QPalette
 
 from utils.logger_config import get_logger
 
@@ -256,6 +257,105 @@ class EngineerTabView(QWidget):
         
         layout.addStretch()
         
+        # Connection group (at the bottom)
+        connect_group = QGroupBox("Connection")
+        connect_group.setFont(self.font_medium)
+        connect_layout = QVBoxLayout()
+        connect_layout.setSpacing(10)
+        
+        # Ping table: labels row and status lights row
+        from utils.network_monitor import DEVICES
+        ping_table_widget = QWidget()
+        ping_table = QGridLayout(ping_table_widget)
+        ping_table.setSpacing(15)
+        ping_table.setContentsMargins(10, 10, 10, 10)
+        
+        # Add border styling
+        ping_table_widget.setStyleSheet("""
+            QWidget {
+                border: 1px solid #555;
+                border-radius: 4px;
+                background-color: #2b2b2b;
+            }
+        """)
+        
+        # Row 0: Device labels
+        col = 0
+        self.ping_labels = {}
+        for ip, name in DEVICES.items():
+            label = QLabel(name)
+            label.setFont(self.font_normal)
+            label.setAlignment(Qt.AlignCenter)
+            ping_table.addWidget(label, 0, col)
+            col += 1
+        
+        # Row 1: Status lights
+        col = 0
+        for ip in DEVICES.keys():
+            status_light = QLabel("●")
+            status_light.setFont(QFont("Arial", 16))
+            status_light.setAlignment(Qt.AlignCenter)
+            status_light.setMinimumWidth(25)
+            status_light.setStyleSheet("color: gray;")
+            self.ping_labels[ip] = status_light
+            ping_table.addWidget(status_light, 1, col)
+            col += 1
+        
+        connect_layout.addWidget(ping_table_widget)
+        
+        # Robot reconnect row
+        robot_row = QHBoxLayout()
+        robot_row.setSpacing(10)
+        robot_label = QLabel("Robot:")
+        robot_label.setFont(self.font_medium)
+        robot_row.addWidget(robot_label)
+        
+        self.robot_status_light = QLabel("●")
+        self.robot_status_light.setFont(QFont("Arial", 16))
+        self.robot_status_light.setAlignment(Qt.AlignCenter)
+        self.robot_status_light.setMinimumWidth(20)
+        self.robot_status_light.setStyleSheet("color: gray;")
+        robot_row.addWidget(self.robot_status_light)
+        
+        robot_row.addStretch()
+        
+        self.robot_reconnect_btn = QPushButton("Reconnect")
+        self.robot_reconnect_btn.setFont(self.font_medium)
+        self.robot_reconnect_btn.setMinimumHeight(30)
+        self.robot_reconnect_btn.setMinimumWidth(90)
+        self.robot_reconnect_btn.clicked.connect(self.on_robot_reconnect)
+        robot_row.addWidget(self.robot_reconnect_btn)
+        
+        connect_layout.addLayout(robot_row)
+        
+        # Camera reconnect row
+        camera_row = QHBoxLayout()
+        camera_row.setSpacing(10)
+        camera_label = QLabel("Camera:")
+        camera_label.setFont(self.font_medium)
+        camera_row.addWidget(camera_label)
+        
+        self.camera_status_light = QLabel("●")
+        self.camera_status_light.setFont(QFont("Arial", 16))
+        self.camera_status_light.setAlignment(Qt.AlignCenter)
+        self.camera_status_light.setMinimumWidth(20)
+        self.camera_status_light.setStyleSheet("color: gray;")
+        camera_row.addWidget(self.camera_status_light)
+        
+        camera_row.addStretch()
+        
+        self.camera_reconnect_btn = QPushButton("Reconnect")
+        self.camera_reconnect_btn.setFont(self.font_medium)
+        self.camera_reconnect_btn.setMinimumHeight(30)
+        self.camera_reconnect_btn.setMinimumWidth(90)
+        self.camera_reconnect_btn.clicked.connect(self.on_camera_reconnect)
+        camera_row.addWidget(self.camera_reconnect_btn)
+        
+        connect_layout.addLayout(camera_row)
+        
+        connect_group.setLayout(connect_layout)
+        layout.addWidget(connect_group)
+        
         # Set content widget to scroll area
         scroll_area.setWidget(content_widget)
         
@@ -269,6 +369,9 @@ class EngineerTabView(QWidget):
         self.pixmap_item = None
         self.click_history = []
         self.max_history = 20
+        
+        # Setup network monitoring
+        self._setup_network_monitoring()
     
     def on_frame_type_changed(self, state):
         """Handle frame type change"""
@@ -456,3 +559,50 @@ class EngineerTabView(QWidget):
     def update_section_display(self, section_id):
         """Update section display (no UI element, kept for compatibility)"""
         pass
+    
+    def _setup_network_monitoring(self):
+        """Setup network monitoring connections"""
+        if hasattr(self.controller, 'network_monitor'):
+            self.controller.network_monitor.ping_status_changed.connect(self._on_ping_status_changed)
+            self.controller.start_network_monitoring()
+        
+        # Connect to controller signals for connection status updates
+        if hasattr(self.controller, 'robot_connection_status_changed'):
+            self.controller.robot_connection_status_changed.connect(self._on_robot_connection_status_changed)
+            # Emit initial status
+            initial_status = self.controller.robot.is_connected()
+            self._on_robot_connection_status_changed(initial_status)
+        
+        if hasattr(self.controller, 'camera_connection_status_changed'):
+            self.controller.camera_connection_status_changed.connect(self._on_camera_connection_status_changed)
+            # Emit initial status
+            initial_status = self.controller.vision.is_camera_connected()
+            self._on_camera_connection_status_changed(initial_status)
+    
+    def _on_ping_status_changed(self, ip: str, is_online: bool):
+        """Update ping status light for a device"""
+        if ip in self.ping_labels:
+            color = "green" if is_online else "red"
+            self.ping_labels[ip].setStyleSheet(f"color: {color};")
+    
+    def _on_robot_connection_status_changed(self, is_connected: bool):
+        """Update robot connection status UI"""
+        color = "green" if is_connected else "red"
+        self.robot_status_light.setStyleSheet(f"color: {color};")
+    
+    def _on_camera_connection_status_changed(self, is_connected: bool):
+        """Update camera connection status UI"""
+        color = "green" if is_connected else "red"
+        self.camera_status_light.setStyleSheet(f"color: {color};")
+    
+    def on_robot_reconnect(self):
+        """Handle robot reconnect button click"""
+        if hasattr(self.controller, 'robot'):
+            self.controller.robot.reconnect()
+    
+    def on_camera_reconnect(self):
+        """Handle camera reconnect button click"""
+        # TODO: If CameraHandler becomes a QObject, could call directly:
+        #        self.controller.vision.camera.reconnect()
+        if hasattr(self.controller, 'vision'):
+            self.controller.vision.reconnect_camera()

@@ -349,6 +349,8 @@ class CameraHandler:
     """
     Delegates camera operations to the appropriate camera type (USB or Pylon).
     TODO: add camera calibration
+    TODO: Consider making this a QObject to emit connection_status_changed signal directly
+          instead of requiring VisionModel to act as an adapter
     """
     def __init__(self, cam_type=None, cam_num=None, file_path=None):
         self.camera = None
@@ -398,6 +400,27 @@ class CameraHandler:
         time.sleep(2)
 
         return self.initialize_camera()
+    
+    def is_connected(self) -> bool:
+        """Check if camera is connected."""
+        if not self.camera:
+            return False
+        
+        # Check based on camera type
+        if self.cam_type == "pylon":
+            # For Pylon camera, check if it's grabbing
+            return (hasattr(self.camera, 'camera') and 
+                   self.camera.camera is not None and
+                   self.camera.camera.IsGrabbing())
+        elif self.cam_type == "usb":
+            # For USB camera, check if it's opened
+            return (hasattr(self.camera, 'cap') and
+                   self.camera.cap is not None and
+                   self.camera.cap.isOpened())
+        elif self.cam_type == "file":
+            # File camera is always "connected" if initialized
+            return self.camera is not None
+        return False
 
 if __name__ == "__main__":
     # Uses config.yml settings: cam_type="file", img_path="save/2025-02-10 122138.jpg"

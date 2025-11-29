@@ -65,6 +65,7 @@ class RobotModel(QObject):
     robot_connection_error = pyqtSignal(str)
     robot_status = pyqtSignal(str)
     error = pyqtSignal(str)
+    connection_status_changed = pyqtSignal(bool)  # Emitted when connection status changes (is_connected)
 
     def __init__(self, ip, port, timeout=5.0, simulated=False):
         super().__init__()
@@ -113,6 +114,7 @@ class RobotModel(QObject):
             # In simulation mode, always "connect" successfully
             self.robot_state = self.IDLE
             self.robot_connected.emit()
+            self.connection_status_changed.emit(True)
             logger.info("Connected to simulated robot")
             return True
         else:
@@ -122,10 +124,21 @@ class RobotModel(QObject):
                 return True
             else:
                 self.robot_state = self.DISCONNECT
+                self.connection_status_changed.emit(False)
                 # Start reconnect timer if not already running
                 if not self.reconnect_timer.isActive():
                     self.reconnect_timer.start()
                 return False
+    
+    def reconnect(self) -> bool:
+        """Reconnect to the robot by closing and reconnecting."""
+        logger.info("Reconnecting to robot...")
+        self.close()
+        return self.connect_to_server()
+    
+    def is_connected(self) -> bool:
+        """Check if robot is connected."""
+        return self.robot_state != self.DISCONNECT
 
     def _attempt_reconnect(self):
         """Attempt to reconnect to the robot if not connected."""
@@ -137,11 +150,13 @@ class RobotModel(QObject):
         """Handle successful connection."""
         self.robot_state = self.IDLE
         self.robot_connected.emit()
+        self.connection_status_changed.emit(True)
 
     def _on_connection_error(self, error_msg):
         """Handle connection error."""
         self.robot_state = self.DISCONNECT
         self.robot_connection_error.emit(error_msg)
+        self.connection_status_changed.emit(False)
         # Start reconnect timer if not already running
         if not self.reconnect_timer.isActive():
             self.reconnect_timer.start()
@@ -308,7 +323,11 @@ class RobotModel(QObject):
         
         if not self.simulated and self.socket:
             self.socket.close()
+        old_state = self.robot_state
         self.robot_state = self.DISCONNECT
+        # Emit status change if state actually changed
+        if old_state != self.DISCONNECT:
+            self.connection_status_changed.emit(False)
 
     def where(self, simple=True) -> str:
         return "TO IMPLEMENT"
