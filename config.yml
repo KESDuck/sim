@@ -22,56 +22,46 @@ homo_matrix:
 # 4 5 6
 # 7 8 9
 
-# 11 12 13
-# 21 22 23
-# 31 32 33
-
 section_config:
   "1":
     conveyor_position: 1
-    capture_position: [ 120, 300, 0, 90] # in robot coordinates
+    capture_position: [ -188, 220, 0, 180] # in robot coordinates
     bounding_boxes: # x_min, y_min, x_max, y_max in camera coordinates
       - [400, 300, 2100, 1600] 
   "2":
     conveyor_position: 1
-    capture_position: [0, 300, 0, 180]
+    capture_position: [ 0, 220, 0, 180]
     bounding_boxes:
       - [400, 300, 2100, 1600]
   "3":
     conveyor_position: 1
-    capture_position: [-240, 300, 0, 90]
+    capture_position: [ 188, 220, 0, 180]
     bounding_boxes:
       - [400, 300, 2100, 1600]
   "4":
     conveyor_position: 2
-    capture_position: [ 120, 300, 0, 90]
     bounding_boxes:
       - [400, 300, 2100, 1600]
   "5":
     conveyor_position: 2
-    capture_position: [0, 300, 0, 180]
     bounding_boxes:
       - [350, 300, 750, 1600]
       - [950, 300, 1500, 1600]
       - [1700, 300, 2100, 1600]
   "6":
     conveyor_position: 2
-    capture_position: [-240, 300, 0, 90]
     bounding_boxes:
       - [400, 300, 2100, 1600]
   "7":
     conveyor_position: 3
-    capture_position: [ 120, 300, 0, 90]
     bounding_boxes:
       - [400, 300, 2100, 1600]
   "8":
     conveyor_position: 3
-    capture_position: [0, 300, 0, 180]
     bounding_boxes:
       - [400, 300, 2100, 1600]
   "9":
     conveyor_position: 3
-    capture_position: [-240, 300, 0, 90]
     bounding_boxes:
       - [400, 300, 2100, 1600]
 

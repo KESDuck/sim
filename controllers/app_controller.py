@@ -709,6 +709,23 @@ class AppController(QObject):
         self._ensure_robot_limits(capture_position[0], capture_position[1], capture_position[2], f"Section {section_id}")
         return capture_position
     
+    def get_section_capture_position(self, section_id):
+        """
+        Get capture position for a section without validation checks.
+        Used by UI to preload values.
+        
+        Args:
+            section_id: Section ID (str)
+        
+        Returns:
+            list or None: [x, y, z, u] if section has capture_position, None otherwise
+        """
+        section_str = str(section_id)
+        if section_str not in self.section_config:
+            return None
+        section = self.section_config[section_str]
+        return section.get("capture_position")
+    
     def _within_robot_limits(self, x=None, y=None, z=None):
         limits = getattr(self, "robot_limits", None)
         if not limits:
@@ -770,10 +787,86 @@ class AppController(QObject):
             logger.warning(f"Invalid section_id: {section_id}. Available sections: {list(self.section_config.keys())}")
     
     def change_speed(self, speed):
-        """Change the robot speed"""
+        """
+        Change the robot speed.
+        
+        Args:
+            speed: Speed value (int) or speed name (str: "slow", "normal", "fast")
+        """
+        # Map speed names to percentages if string provided
+        if isinstance(speed, str):
+            speed_map = {"slow": 20, "normal": 40, "fast": 80}
+            speed = speed_map.get(speed.lower(), 50)
+        
         logger.info(f"TODO IMPLEMENT THIS: Changing robot speed to {speed}")
-
         # self.robot.send(cmd=f"speed {speed}")
+    
+    def move_robot_to_position(self, x, y, z, u):
+        """
+        Move robot to specified position.
+        
+        Args:
+            x, y, z, u: Robot coordinates
+        """
+        if not self.robot.is_connected():
+            logger.warning("Robot is not connected")
+            return False
+        
+        logger.info(f"Move robot to ({x}, {y}, {z}, {u})")
+        self.robot.send(
+            cmd=f"move {x} {y} {z} {u}",
+            expect=self.EXPECT_POSITION_REACHED,
+            timeout=10.0
+        )
+        return True
+    
+    def is_robot_connected(self):
+        """Check if robot is connected"""
+        return self.robot.is_connected()
+    
+    def is_camera_connected(self):
+        """Check if camera is connected"""
+        return self.vision.is_camera_connected()
+    
+    def reconnect_robot(self):
+        """Reconnect robot"""
+        self.robot.reconnect()
+    
+    def reconnect_camera(self):
+        """Reconnect camera"""
+        self.vision.reconnect_camera()
+    
+    def get_preview_frame(self):
+        """
+        Get latest frame from camera for preview.
+        
+        Returns:
+            numpy array or None
+        """
+        try:
+            # Try to get frame from camera directly (gets latest frame)
+            if hasattr(self.vision, 'camera') and hasattr(self.vision.camera, 'get_frame'):
+                frame = self.vision.camera.get_frame()
+                if frame is not None:
+                    return frame
+            
+            # If that fails, try to get the stored frame
+            if hasattr(self.vision, 'frame_camera_stored'):
+                return self.vision.frame_camera_stored
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error getting preview frame: {e}")
+            return None
+    
+    def get_network_devices(self):
+        """
+        Get network devices dictionary.
+        
+        Returns:
+            dict: {ip: name} mapping of network devices
+        """
+        return DEVICES
 
     def stop_all(self):
         """Stop the current robot operation"""

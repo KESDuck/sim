@@ -78,51 +78,6 @@ class UserTabView(QWidget):
         section_group.setLayout(section_layout)
         layout.addWidget(section_group)
         
-        # Robot speed
-        speed_group = QGroupBox("Robot speed")
-        speed_group.setFont(self.font_medium)
-        speed_layout = QHBoxLayout()
-        speed_layout.setSpacing(10)
-        speed_label = QLabel("Speed:")
-        speed_label.setFont(self.font_medium)
-        speed_layout.addWidget(speed_label)
-        
-        # Create button group for speed selection
-        self.speed_button_group = QButtonGroup()
-        self.speed_slow_button = QPushButton("Slow")
-        self.speed_slow_button.setFont(self.font_medium)
-        self.speed_slow_button.setCheckable(True)
-        self.speed_slow_button.setMinimumHeight(50)
-        self.speed_slow_button.setMinimumWidth(80)
-        self.speed_slow_button.clicked.connect(lambda: self.on_speed_selected("slow"))
-        
-        self.speed_normal_button = QPushButton("Normal")
-        self.speed_normal_button.setFont(self.font_medium)
-        self.speed_normal_button.setCheckable(True)
-        self.speed_normal_button.setChecked(True)  # Default selection
-        self.speed_normal_button.setMinimumHeight(50)
-        self.speed_normal_button.setMinimumWidth(80)
-        self.speed_normal_button.clicked.connect(lambda: self.on_speed_selected("normal"))
-        
-        self.speed_fast_button = QPushButton("Fast")
-        self.speed_fast_button.setFont(self.font_medium)
-        self.speed_fast_button.setCheckable(True)
-        self.speed_fast_button.setMinimumHeight(50)
-        self.speed_fast_button.setMinimumWidth(80)
-        self.speed_fast_button.clicked.connect(lambda: self.on_speed_selected("fast"))
-        
-        # Add buttons to group (mutually exclusive)
-        self.speed_button_group.addButton(self.speed_slow_button, 0)
-        self.speed_button_group.addButton(self.speed_normal_button, 1)
-        self.speed_button_group.addButton(self.speed_fast_button, 2)
-        
-        speed_layout.addWidget(self.speed_slow_button)
-        speed_layout.addWidget(self.speed_normal_button)
-        speed_layout.addWidget(self.speed_fast_button)
-        speed_layout.addStretch()
-        speed_group.setLayout(speed_layout)
-        layout.addWidget(speed_group)
-        
         # Control buttons
         button_layout = QVBoxLayout()
         button_layout.setSpacing(10)
@@ -158,13 +113,6 @@ class UserTabView(QWidget):
         """Handle insert section button click"""
         self.controller.insert_section(self.selected_section)
     
-    def on_speed_selected(self, speed):
-        """Handle speed selection"""
-        # Map speed names to percentages
-        speed_map = {"slow": 20, "normal": 40, "fast": 80}
-        speed_percent = speed_map.get(speed, 50)
-        self.controller.change_speed(speed_percent)
-    
     def on_start_all_clicked(self):
         """Handle start all button click"""
         # TODO: Implement start all functionality
@@ -190,10 +138,5 @@ class UserTabView(QWidget):
         # Disable go to section and insert section buttons while operating
         self.go_to_section_button.setEnabled(not is_operating)
         self.insert_section_button.setEnabled(not is_operating)
-        
-        # Disable speed buttons while operating
-        self.speed_slow_button.setEnabled(not is_operating)
-        self.speed_normal_button.setEnabled(not is_operating)
-        self.speed_fast_button.setEnabled(not is_operating)
         
         # Stop button is always enabled (no need to change, already enabled by default)
