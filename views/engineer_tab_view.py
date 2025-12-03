@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (QPushButton, QVBoxLayout,
                            QHBoxLayout, QWidget, 
                            QSpinBox, QLabel, QGroupBox, QButtonGroup,
                            QGraphicsView, QGraphicsScene, QTextEdit, QScrollArea,
-                           QGridLayout)
+                           QGridLayout, QSlider)
 from PyQt5.QtGui import QImage, QPixmap, QFont, QColor, QPalette
 
 from utils.logger_config import get_logger
@@ -218,6 +218,33 @@ class EngineerTabView(QWidget):
         calib_group.setStyleSheet(group_box_primary('#FFA500'))
         calib_layout = QVBoxLayout()
         calib_layout.setSpacing(12)
+        
+        # Exposure time slider
+        exposure_label_row = QHBoxLayout()
+        exposure_label = QLabel("Exposure Time:")
+        exposure_label.setFont(self.font_label)
+        exposure_label.setStyleSheet(label_muted())
+        exposure_label_row.addWidget(exposure_label)
+        
+        self.exposure_value_label = QLabel("---")
+        self.exposure_value_label.setFont(self.font_label)
+        self.exposure_value_label.setStyleSheet(label_muted())
+        self.exposure_value_label.setMinimumWidth(80)
+        exposure_label_row.addWidget(self.exposure_value_label)
+        exposure_label_row.addStretch()
+        calib_layout.addLayout(exposure_label_row)
+        
+        exposure_slider_row = QHBoxLayout()
+        self.exposure_slider = QSlider(Qt.Horizontal)
+        self.exposure_slider.setMinimum(100)  # 100 µs
+        self.exposure_slider.setMaximum(300000)  # 300 ms
+        self.exposure_slider.setMinimumHeight(30)
+        self.exposure_slider.valueChanged.connect(self.on_exposure_time_changed)
+        exposure_slider_row.addWidget(self.exposure_slider)
+        calib_layout.addLayout(exposure_slider_row)
+        
+        # Initialize exposure time from camera (will set default if camera not available)
+        self._update_exposure_time_from_camera()
         
         # Preview / capture buttons
         capture_button_row = QHBoxLayout()
@@ -630,6 +657,54 @@ class EngineerTabView(QWidget):
             vision_view = self.app_view.vision_view
             vision_view.reset_view()
     
+    def _update_exposure_time_from_camera(self):
+        """Update exposure time slider and label from camera current value"""
+        try:
+            exposure_time = -1
+            if hasattr(self.controller, 'get_exposure_time'):
+                exposure_time = self.controller.get_exposure_time()
+            
+            if exposure_time > 0:
+                # Clamp value to slider range
+                exposure_time = max(self.exposure_slider.minimum(), 
+                                  min(self.exposure_slider.maximum(), int(exposure_time)))
+                self.exposure_slider.blockSignals(True)
+                self.exposure_slider.setValue(int(exposure_time))
+                self.exposure_slider.blockSignals(False)
+                # Display in milliseconds
+                exposure_ms = exposure_time / 1000.0
+                self.exposure_value_label.setText(f"{exposure_ms:.2f} ms")
+            else:
+                # Camera not available or invalid value, set default
+                default_value = 5000  # 5 ms default
+                self.exposure_slider.blockSignals(True)
+                self.exposure_slider.setValue(default_value)
+                self.exposure_slider.blockSignals(False)
+                self.exposure_value_label.setText(f"{default_value / 1000.0:.2f} ms")
+        except Exception as e:
+            logger.error(f"Error updating exposure time from camera: {e}")
+            # Set default on error
+            default_value = 5000
+            self.exposure_slider.blockSignals(True)
+            self.exposure_slider.setValue(default_value)
+            self.exposure_slider.blockSignals(False)
+            self.exposure_value_label.setText(f"{default_value / 1000.0:.2f} ms")
+    
+    def on_exposure_time_changed(self, value):
+        """Handle exposure time slider value change"""
+        try:
+            # Update label (display in milliseconds)
+            exposure_ms = value / 1000.0
+            self.exposure_value_label.setText(f"{exposure_ms:.2f} ms")
+            
+            # Set camera exposure time (value is in microseconds)
+            if hasattr(self.controller, 'set_exposure_time'):
+                success = self.controller.set_exposure_time(float(value))
+                if not success:
+                    logger.warning(f"Failed to set exposure time to {value} µs")
+        except Exception as e:
+            logger.error(f"Error setting exposure time: {e}")
+    
     def on_preview_image(self):
         """Capture latest frame from camera and show in secondary frame"""
         # Get latest frame from camera via controller
@@ -826,6 +901,9 @@ class EngineerTabView(QWidget):
         """Update camera connection status UI"""
         color = "green" if is_connected else "red"
         self.camera_status_light.setStyleSheet(f"color: {color};")
+        # Update exposure time when camera connects
+        if is_connected:
+            self._update_exposure_time_from_camera()
     
     def on_robot_reconnect(self):
         """Handle robot reconnect button click"""
@@ -838,5 +916,7 @@ class EngineerTabView(QWidget):
         """Handle camera reconnect button click"""
         if hasattr(self.controller, 'reconnect_camera'):
             self.controller.reconnect_camera()
+            # Update exposure time after reconnection
+            self._update_exposure_time_from_camera()
         else:
             logger.warning("Controller missing reconnect_camera method")

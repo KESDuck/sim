@@ -190,12 +190,26 @@ class PylonCamera(CameraBase):
             self.camera.Open()
             # Go here for available camera features: https://docs.baslerweb.com/features
 
-            # Load default settings
-            self.camera.UserSetSelector.Value = "Default"
-            self.camera.UserSetLoad.Execute()
-
-            # setting exposure, read from pylon viewer
-            self.camera.ExposureTimeAbs.Value = config["camera"]["exposure_time"]
+            # Don't load default settings - preserve last exposure time set by user
+            # If you need to reset to defaults, uncomment the following lines:
+            # self.camera.UserSetSelector.Value = "Default"
+            # self.camera.UserSetLoad.Execute()
+            # self.camera.ExposureTimeAbs.Value = config["camera"]["exposure_time"]
+            
+            # Only set exposure from config if camera doesn't have a valid exposure time
+            # (This preserves the last set exposure time like Pylon Viewer does)
+            try:
+                current_exposure = self.camera.ExposureTimeAbs.Value
+                if current_exposure <= 0:
+                    # Camera has invalid exposure, set from config
+                    self.camera.ExposureTimeAbs.Value = config["camera"]["exposure_time"]
+                    logger.info(f"Camera had invalid exposure, set to config value: {config['camera']['exposure_time']} µs")
+                else:
+                    logger.info(f"Preserving camera exposure time: {current_exposure} µs")
+            except Exception as e:
+                # If we can't read exposure, set from config as fallback
+                logger.warning(f"Could not read current exposure time, setting from config: {e}")
+                self.camera.ExposureTimeAbs.Value = config["camera"]["exposure_time"]
             # self._print_camera_attributes()
 
             # Configure format converter
@@ -274,6 +288,27 @@ class PylonCamera(CameraBase):
             return frame
         else:
             return None
+
+    def get_exposure_time(self) -> float:
+        """Get current exposure time in microseconds."""
+        if not self.camera or not self.camera.IsOpen():
+            return -1
+        try:
+            return self.camera.ExposureTimeAbs.Value
+        except Exception as e:
+            logger.error(f"Error getting exposure time: {e}")
+            return -1
+    
+    def set_exposure_time(self, value: float) -> bool:
+        """Set exposure time in microseconds."""
+        if not self.camera or not self.camera.IsOpen():
+            return False
+        try:
+            self.camera.ExposureTimeAbs.Value = value
+            return True
+        except Exception as e:
+            logger.error(f"Error setting exposure time: {e}")
+            return False
 
     def release(self):
         """Release the Pylon camera."""
@@ -420,6 +455,22 @@ class CameraHandler:
         elif self.cam_type == "file":
             # File camera is always "connected" if initialized
             return self.camera is not None
+        return False
+    
+    def get_exposure_time(self) -> float:
+        """Get current exposure time in microseconds. Returns -1 if not supported or error."""
+        if not self.camera:
+            return -1
+        if self.cam_type == "pylon" and hasattr(self.camera, 'get_exposure_time'):
+            return self.camera.get_exposure_time()
+        return -1
+    
+    def set_exposure_time(self, value: float) -> bool:
+        """Set exposure time in microseconds. Returns True if successful."""
+        if not self.camera:
+            return False
+        if self.cam_type == "pylon" and hasattr(self.camera, 'set_exposure_time'):
+            return self.camera.set_exposure_time(value)
         return False
 
 if __name__ == "__main__":

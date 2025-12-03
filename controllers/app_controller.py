@@ -859,6 +859,26 @@ class AppController(QObject):
             logger.error(f"Error getting preview frame: {e}")
             return None
     
+    def get_exposure_time(self) -> float:
+        """Get current camera exposure time in microseconds. Returns -1 if not supported."""
+        try:
+            if hasattr(self.vision, 'camera') and hasattr(self.vision.camera, 'get_exposure_time'):
+                return self.vision.camera.get_exposure_time()
+            return -1
+        except Exception as e:
+            logger.error(f"Error getting exposure time: {e}")
+            return -1
+    
+    def set_exposure_time(self, value: float) -> bool:
+        """Set camera exposure time in microseconds. Returns True if successful."""
+        try:
+            if hasattr(self.vision, 'camera') and hasattr(self.vision.camera, 'set_exposure_time'):
+                return self.vision.camera.set_exposure_time(value)
+            return False
+        except Exception as e:
+            logger.error(f"Error setting exposure time: {e}")
+            return False
+    
     def get_network_devices(self):
         """
         Get network devices dictionary.
