@@ -243,8 +243,35 @@ class EngineerTabView(QWidget):
         exposure_slider_row.addWidget(self.exposure_slider)
         calib_layout.addLayout(exposure_slider_row)
         
-        # Initialize exposure time from camera (will set default if camera not available)
-        self._update_exposure_time_from_camera()
+        # Initialize exposure time from config
+        self._update_exposure_time_from_config()
+        
+        # Threshold slider
+        threshold_label_row = QHBoxLayout()
+        threshold_label = QLabel("Threshold:")
+        threshold_label.setFont(self.font_label)
+        threshold_label.setStyleSheet(label_muted())
+        threshold_label_row.addWidget(threshold_label)
+        
+        self.threshold_value_label = QLabel("---")
+        self.threshold_value_label.setFont(self.font_label)
+        self.threshold_value_label.setStyleSheet(label_muted())
+        self.threshold_value_label.setMinimumWidth(80)
+        threshold_label_row.addWidget(self.threshold_value_label)
+        threshold_label_row.addStretch()
+        calib_layout.addLayout(threshold_label_row)
+        
+        threshold_slider_row = QHBoxLayout()
+        self.threshold_slider = QSlider(Qt.Horizontal)
+        self.threshold_slider.setMinimum(0)  # 0 = Otsu's method
+        self.threshold_slider.setMaximum(255)
+        self.threshold_slider.setMinimumHeight(30)
+        self.threshold_slider.valueChanged.connect(self.on_threshold_changed)
+        threshold_slider_row.addWidget(self.threshold_slider)
+        calib_layout.addLayout(threshold_slider_row)
+        
+        # Initialize threshold from config
+        self._update_threshold_from_config()
         
         # Preview / capture buttons
         capture_button_row = QHBoxLayout()
@@ -657,38 +684,80 @@ class EngineerTabView(QWidget):
             vision_view = self.app_view.vision_view
             vision_view.reset_view()
     
-    def _update_exposure_time_from_camera(self):
-        """Update exposure time slider and label from camera current value"""
+    def _update_exposure_time_from_config(self):
+        """Update exposure time slider and label from config"""
         try:
-            exposure_time = -1
-            if hasattr(self.controller, 'get_exposure_time'):
-                exposure_time = self.controller.get_exposure_time()
+            import yaml
+            with open('config.yml', 'r') as file:
+                config_data = yaml.safe_load(file)
             
-            if exposure_time > 0:
-                # Clamp value to slider range
-                exposure_time = max(self.exposure_slider.minimum(), 
-                                  min(self.exposure_slider.maximum(), int(exposure_time)))
-                self.exposure_slider.blockSignals(True)
-                self.exposure_slider.setValue(int(exposure_time))
-                self.exposure_slider.blockSignals(False)
-                # Display in milliseconds
-                exposure_ms = exposure_time / 1000.0
-                self.exposure_value_label.setText(f"{exposure_ms:.2f} ms")
-            else:
-                # Camera not available or invalid value, set default
-                default_value = 5000  # 5 ms default
-                self.exposure_slider.blockSignals(True)
-                self.exposure_slider.setValue(default_value)
-                self.exposure_slider.blockSignals(False)
-                self.exposure_value_label.setText(f"{default_value / 1000.0:.2f} ms")
+            exposure_time = config_data.get("camera", {}).get("exposure_time", 5000)
+            
+            # Clamp value to slider range
+            exposure_time = max(self.exposure_slider.minimum(), 
+                              min(self.exposure_slider.maximum(), int(exposure_time)))
+            self.exposure_slider.blockSignals(True)
+            self.exposure_slider.setValue(int(exposure_time))
+            self.exposure_slider.blockSignals(False)
+            # Display in milliseconds
+            exposure_ms = exposure_time / 1000.0
+            self.exposure_value_label.setText(f"{exposure_ms:.2f} ms")
         except Exception as e:
-            logger.error(f"Error updating exposure time from camera: {e}")
+            logger.error(f"Error updating exposure time from config: {e}")
             # Set default on error
             default_value = 5000
             self.exposure_slider.blockSignals(True)
             self.exposure_slider.setValue(default_value)
             self.exposure_slider.blockSignals(False)
             self.exposure_value_label.setText(f"{default_value / 1000.0:.2f} ms")
+    
+    def _update_threshold_from_config(self):
+        """Update threshold slider and label from config"""
+        try:
+            threshold = -1
+            if hasattr(self.controller, 'get_threshold'):
+                threshold = self.controller.get_threshold()
+            
+            if threshold >= 0:
+                self.threshold_slider.blockSignals(True)
+                self.threshold_slider.setValue(threshold)
+                self.threshold_slider.blockSignals(False)
+                if threshold == 0:
+                    self.threshold_value_label.setText("Otsu (auto)")
+                else:
+                    self.threshold_value_label.setText(str(threshold))
+            else:
+                # Default threshold from config
+                default_value = 135
+                self.threshold_slider.blockSignals(True)
+                self.threshold_slider.setValue(default_value)
+                self.threshold_slider.blockSignals(False)
+                self.threshold_value_label.setText(str(default_value))
+        except Exception as e:
+            logger.error(f"Error updating threshold from config: {e}")
+            # Set default on error
+            default_value = 135
+            self.threshold_slider.blockSignals(True)
+            self.threshold_slider.setValue(default_value)
+            self.threshold_slider.blockSignals(False)
+            self.threshold_value_label.setText(str(default_value))
+    
+    def on_threshold_changed(self, value):
+        """Handle threshold slider value change"""
+        try:
+            # Update label
+            if value == 0:
+                self.threshold_value_label.setText("Otsu (auto)")
+            else:
+                self.threshold_value_label.setText(str(value))
+            
+            # Set threshold value (this will also save to config)
+            if hasattr(self.controller, 'set_threshold'):
+                success = self.controller.set_threshold(value)
+                if not success:
+                    logger.warning(f"Failed to set threshold to {value}")
+        except Exception as e:
+            logger.error(f"Error setting threshold: {e}")
     
     def on_exposure_time_changed(self, value):
         """Handle exposure time slider value change"""
@@ -697,7 +766,7 @@ class EngineerTabView(QWidget):
             exposure_ms = value / 1000.0
             self.exposure_value_label.setText(f"{exposure_ms:.2f} ms")
             
-            # Set camera exposure time (value is in microseconds)
+            # Set camera exposure time (this will also save to config)
             if hasattr(self.controller, 'set_exposure_time'):
                 success = self.controller.set_exposure_time(float(value))
                 if not success:
@@ -903,7 +972,7 @@ class EngineerTabView(QWidget):
         self.camera_status_light.setStyleSheet(f"color: {color};")
         # Update exposure time when camera connects
         if is_connected:
-            self._update_exposure_time_from_camera()
+            self._update_exposure_time_from_config()
     
     def on_robot_reconnect(self):
         """Handle robot reconnect button click"""
@@ -917,6 +986,6 @@ class EngineerTabView(QWidget):
         if hasattr(self.controller, 'reconnect_camera'):
             self.controller.reconnect_camera()
             # Update exposure time after reconnection
-            self._update_exposure_time_from_camera()
+            self._update_exposure_time_from_config()
         else:
             logger.warning("Controller missing reconnect_camera method")

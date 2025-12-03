@@ -873,11 +873,72 @@ class AppController(QObject):
         """Set camera exposure time in microseconds. Returns True if successful."""
         try:
             if hasattr(self.vision, 'camera') and hasattr(self.vision.camera, 'set_exposure_time'):
-                return self.vision.camera.set_exposure_time(value)
+                success = self.vision.camera.set_exposure_time(value)
+                if success:
+                    # Save to config file
+                    self._save_exposure_time_to_config(value)
+                return success
             return False
         except Exception as e:
             logger.error(f"Error setting exposure time: {e}")
             return False
+    
+    def _save_exposure_time_to_config(self, value: float):
+        """Save exposure time value to config file."""
+        try:
+            import yaml
+            with open('config.yml', 'r') as file:
+                config_data = yaml.safe_load(file)
+            
+            if 'camera' not in config_data:
+                config_data['camera'] = {}
+            config_data['camera']['exposure_time'] = int(value)
+            
+            with open('config.yml', 'w') as file:
+                yaml.dump(config_data, file, default_flow_style=False, sort_keys=False)
+        except Exception as e:
+            logger.error(f"Error saving exposure time to config: {e}")
+    
+    def get_threshold(self) -> int:
+        """Get current threshold value (0-255). Returns -1 if not supported."""
+        try:
+            if hasattr(self.vision, 'get_threshold'):
+                return self.vision.get_threshold()
+            return -1
+        except Exception as e:
+            logger.error(f"Error getting threshold: {e}")
+            return -1
+    
+    def set_threshold(self, value: int) -> bool:
+        """Set threshold value (0-255). Returns True if successful."""
+        try:
+            if hasattr(self.vision, 'set_threshold'):
+                success = self.vision.set_threshold(value)
+                if success:
+                    # Save to config file
+                    self._save_threshold_to_config(value)
+                return success
+            return False
+        except Exception as e:
+            logger.error(f"Error setting threshold: {e}")
+            return False
+    
+    def _save_threshold_to_config(self, value: int):
+        """Save threshold value to config file."""
+        try:
+            import yaml
+            with open('config.yml', 'r') as file:
+                config_data = yaml.safe_load(file)
+            
+            if 'vision' not in config_data:
+                config_data['vision'] = {}
+            config_data['vision']['threshold'] = value
+            
+            with open('config.yml', 'w') as file:
+                yaml.dump(config_data, file, default_flow_style=False, sort_keys=False)
+            
+        except Exception as e:
+            logger.error(f"Error saving threshold to config: {e}")
     
     def get_network_devices(self):
         """

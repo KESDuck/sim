@@ -32,6 +32,9 @@ class VisionModel(QObject):
         self.frame_threshold = None  # right after threshold
         self.frame_contour = None  # with contour
         self.centroids = None  # list of centroids
+        
+        # Threshold value from config
+        self.threshold_value = config.get("vision", {}).get("threshold", 135)
 
     def get_first_frame(self):
         """Get first frame to verify camera operation"""
@@ -48,7 +51,6 @@ class VisionModel(QObject):
         Returns True if capture and process succeed else False
         """
         # Parameters for processing
-        threshold_value = 135
         min_area = 2700  # 52x52
         max_area = 5625  # 75x75
         crop_region = None
@@ -64,8 +66,12 @@ class VisionModel(QObject):
 
         self.frame_camera_stored = frame
             
-        # threshold
-        _, thres = cv.threshold(frame, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+        # threshold - use configured threshold value (0 means use Otsu's method)
+        if self.threshold_value > 0:
+            _, thres = cv.threshold(frame, self.threshold_value, 255, cv.THRESH_BINARY)
+        else:
+            # Use Otsu's automatic threshold if threshold is 0
+            _, thres = cv.threshold(frame, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
 
         # contours
         contours, _ = cv.findContours(thres, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
@@ -123,6 +129,19 @@ class VisionModel(QObject):
         success = self.camera.reconnect()
         self.camera_connection_status_changed.emit(success)
         return success
+    
+    def get_threshold(self) -> int:
+        """Get current threshold value."""
+        return self.threshold_value
+    
+    def set_threshold(self, value: int) -> bool:
+        """Set threshold value (0-255). Returns True if successful."""
+        if 0 <= value <= 255:
+            self.threshold_value = value
+            return True
+        else:
+            logger.error(f"Invalid threshold value: {value} (must be 0-255)")
+            return False
     
     def close(self):
         """Clean up resources"""
