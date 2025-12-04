@@ -98,11 +98,6 @@ class RobotModel(QObject):
             self.socket.connection_error.connect(self._on_connection_error)
             self.socket.response_received.connect(self._on_raw_response)
         
-        # Setup reconnect timer
-        self.reconnect_timer = QTimer()
-        self.reconnect_timer.timeout.connect(self._attempt_reconnect)
-        self.reconnect_timer.setInterval(1000) # Connect every 1s
-        
         # Setup timeout checker
         self.timeout_timer = QTimer()
         self.timeout_timer.timeout.connect(self._check_timeouts)
@@ -119,15 +114,10 @@ class RobotModel(QObject):
             return True
         else:
             if self.socket.connect_to_server():
-                # Stop reconnect timer when connected
-                self.reconnect_timer.stop()
                 return True
             else:
                 self.robot_state = self.DISCONNECT
                 self.connection_status_changed.emit(False)
-                # Start reconnect timer if not already running
-                if not self.reconnect_timer.isActive():
-                    self.reconnect_timer.start()
                 return False
     
     def reconnect(self) -> bool:
@@ -140,12 +130,6 @@ class RobotModel(QObject):
         """Check if robot is connected."""
         return self.robot_state != self.DISCONNECT
 
-    def _attempt_reconnect(self):
-        """Attempt to reconnect to the robot if not connected."""
-        if self.robot_state == self.DISCONNECT:
-            logger.debug("🛜🔄 Attempting to reconnect to robot...")
-            self.connect_to_server()
-
     def _on_connected(self):
         """Handle successful connection."""
         self.robot_state = self.IDLE
@@ -157,9 +141,6 @@ class RobotModel(QObject):
         self.robot_state = self.DISCONNECT
         self.robot_connection_error.emit(error_msg)
         self.connection_status_changed.emit(False)
-        # Start reconnect timer if not already running
-        if not self.reconnect_timer.isActive():
-            self.reconnect_timer.start()
 
     def _add_expectation(self, expected_response: str, timeout: float, 
                         on_success: Optional[Callable[[], None]] = None,
@@ -310,7 +291,6 @@ class RobotModel(QObject):
     def close(self):
         """Close the connection to the robot."""
         logger.info("Closing robot connection")
-        self.reconnect_timer.stop()  # Stop reconnect timer
         self.timeout_timer.stop()    # Stop timeout checker
         
         # Clean up simulation timers

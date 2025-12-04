@@ -19,10 +19,6 @@
     - [1 screw](#1-screw)
     - [10 screws](#10-screws)
     - [100 screws](#100-screws)
-- [App manual unit tests:](#app-manual-unit-tests)
-    - [window](#window)
-    - [cross](#cross)
-    - [others](#others)
 - [Error Analysis](#error-analysis)
 - [Tasks](#tasks)
 
@@ -35,10 +31,11 @@ This app is a robot vision system that integrates camera (pylon), robot (TCPIP),
 - Cell coordinate: contours center, centroids, screw locations
 - Insertion region: capture id, batch insert section, vision section
 - Template: 模型版
-- Web plate
+- Web plate: tray盤
 - 3x3: rack, 九宮格
 - Grabber: retriver
 - Feeder:  
+- Pickup station
 
 ## Ideal operation (happy path)
 1. Setup  
@@ -77,36 +74,6 @@ main
             └── image_processing (Applies image thresholding & contour detection)
 ```
 
-
-## Camera Setup
-Webcam  
-iPhone  
-Basler (pylon)  
-- Use pylon IP configurator or pylon Viewer  
-
-acA2500-14gm (2592x1944)
-- z=580mm (robot -18mm), 16mm:
-    - FOV: 190x140, 15x20 cells
-    - cell 90x90 pixel 
-- z=580mm (robot -18mm), 8mm:
-    - FOV: 290X380
-    - max distortion 0.5mm
-    - 6.7 pixel/mm
-    - each cell 45x45 pixel
-- z=480mm (robot -118mm), 8mm:
-    - max distortion 4px
-    - 10.9pixel/mm
-    - each cell 55x55 pixel
-- z= (robot -18mm), 12mm:
-    - FOV: 260x190
-    - max distortion: 0.3mm
-    - 10.0 pixel/mm
-Taobao acA2500-14gm (2592x1944)
-- z= (robot -18mm), 12mm:
-    - FOV: 260x190
-    - max distortion: 0.3mm
-    - 10.0 pixel/mm
-
 ## Vision cycle
 ```
 Flow of Operations:  
@@ -129,54 +96,80 @@ capture_process_frame:
 ```
 
 ## Messaging Protocol
-TODO: 25-08-07 this might need some updating
-### States
-- State 0: Idle
-- State 1: Imaging
-- State 2: Inserting
+
+### Robot States
+- State 0: **DISCONNECTED** - No TCP client connected
+- State 1: **IDLE** - Waiting for command
+- State 2: **MOVING** - Move to X/Y/Z/U
+- State 3: **INSERTING** - Insert operation using queued coordinates
+- State 4: **TESTING** - Test operation using queued coordinates
+- State 5: **EMERGENCY** - Stop requested or error
 
 ### Robot Status Updates
-- Robot sends status every 1 second: `status {state #}, {x}, {y}, {z}, {u}, {index}, {queue size}`
+- Robot sends status every 1 second: `STATUS {state}, {x}, {y}, {z}, {u}, {index}, {queue_size}`
+- Example: `STATUS 1, 120.1, 203.3, 50.0, 90.0, 0, 0`
 - App synchronizes with robot state every second
 - App displays error if its state differs from robot state
 
 ### Commands
-1. **Capture**: `capture x, y, z, u`
-   - Changes app state 0 → 1 (only allowed if current state is 0)
-   - Expects: `task position_reached` (Timeout: 10s)
 
-2. **Queue**: `queue x1,y1,z1,u1,...,xN,yN,zN,uN`
-   - Changes app state 0 → 2
-   - Expects: `task queue_set` (Timeout: 3s)
-   - Expects: `task queue_completed` (Timeout: 300s)
+1. **Move**: `move x y z u`
+   - Moves robot to target position (only if IDLE)
+   - Expects: `POSITION_REACHED` (Timeout: 10s)
 
-3. **Stop**: `stop`
-   - Changes app state 2 → 0
-   - Expects: `task queue_stopped` (Timeout: 1s)
-   - Unexpects: `task queue_completed`
+2. **Queue**: `queue x1 y1 x2 y2 ... xN yN`
+   - Appends XY coordinate pairs to queue (max 300 coordinates)
+   - Only XY pairs are sent (Z and U are not included in queue)
+   - Expects: `QUEUE_APPENDED` (Timeout: 3s)
+
+3. **Clear Queue**: `clearqueue`
+   - Clears all queued coordinates
+   - Expects: `QUEUE_CLEARED` (Timeout: 3s)
+
+4. **Insert**: `insert`
+   - Begins INSERTING mode using queued coordinates
+   - Expects: `INSERT_DONE` (Timeout: 60s)
+
+5. **Test**: `test`
+   - Begins TESTING mode using queued coordinates
+   - Expects: `TEST_DONE` (Timeout: 60s)
+
+6. **Stop**: `stop`
+   - Stops current insert/test operation and queue processing
+   - Resets state to IDLE
+   - Expects: `STOPPED` (Timeout: 1s)
+
+7. **Motor**: `motor on` or `motor off`
+   - Turns robot servos on or off
+   - Expects: `MOTOR_ON` or `MOTOR_OFF` (Timeout: 5s)
+
+8. **Speed**: `speed <1-100>`
+   - Sets robot speed factor
+   - Expects: `SPEED_SET <value>` (Timeout: 5s)
+
+9. **Load Magazine**: `loadmagazine count`
+   - Moves robot to load position and waits for operator
+   - Expects: `MAGAZINE_LOADED` (Timeout: 60s)
 
 ### Error Handling
-- If command times out:
-  - Position-reached timeout: App state → 0
-  - Queue-set or queue-completed timeout: App state → 0
-- If error response is received (`error` or `taskfailed`): Logged but no state change
+- If command times out: Custom timeout handlers are called, otherwise warning is logged
+- If error response is received (`error` or `taskfailed`): Logged and error signal emitted
+- Commands can only be sent when robot is in appropriate state (e.g., `move` and `queue` require IDLE state)
 
 ### Protocol Notes
-- App state changes immediately after command is sent, preventing multiple commands
-- Status check runs every 1 second to verify state synchronization
-- Commands end with `\r\n` over TCPIP
+- Commands end with `\r\n` over TCP/IP
 - Socket connection maintained throughout operation
-
-### Future Tasks
-- Set expectation for second status update
-- Status update include timestamp
+- App uses expectation-based response handling with optional success/timeout callbacks
+- Queue supports up to 300 coordinate pairs
+- Status updates are sent automatically by robot every 1 second
 
 ## Calibration
 Teach robot tooling (in Robot Manager) 
 1. setup hardware:
     - Have a matrix of known points. The points should be at Z-axis of the insertion plate, plane parallel to the ground. (Place it slightly above the 3x3)
     - Tune gripper: move z up and down to see if it is straight. If not loosen the screws to adjust.
-    - Rotate gripper around tool center make sure it is centered. If not reteach the tool in RC+.
+    - Calibrate robot tool (TCP) BEFORE homography! Rotate gripper around tool center make sure it is centered. If not reteach the tool in RC+.
+    - 
     - Make sure the calibration grid is stable so it will not move if robot touch it. Make sure to secure all points (with doubly sticky) because paper will deform due to humidity and temperature change.
     - Make sure camera is focused
 2. Move camera to correct position. Process image and note their points in image coordinate. Save the image in case needed later.
@@ -255,21 +248,6 @@ Conveyor system
 End-to-end automation  
 Adaptive error handling  
 Non-stop movement when grabbing screw from feeder      
-
-# App manual tests:
-### window
-- Resize the window so nothing weird happen
-
-### cross
-- When clicked, the cross is at right position and shows the robot coordinate
-- Arrow keys moves the cross, WASD moves the cross 10px
-- When zoomed in, the mouse click to the right position
-- Press R Key to record current cross position
-
-### others
-- Image is actually saved
-- TCPIP sends in the right format: (str(message).encode()) + b"\r\n"
-- When sending message and while waiting for 'taskdone', UI is still responsive
 
 # Insertion source of error
 1. Parallex Error due to variation in height

@@ -75,7 +75,7 @@ Client messages follow the format:
 
 ### **1. move x y z u**
 
-Moves robot to target position if IDLE. In left hand coordinate.
+Moves robot to target position if IDLE.
 
 Program: `Jump XY(MoveX, MoveY, MoveZ, MoveU) /L`
 

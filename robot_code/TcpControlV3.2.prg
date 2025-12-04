@@ -259,7 +259,7 @@ Function ProcessReceivedMessage
                         Integer screwCount
                         screwCount = Val(Tokens$(1))
                         ' For now just pause - future implementation will set IO based on screwCount
-                        Jump XY(0, 435, -2, 0) /L LimZ -2
+                        Jump XY(0, 435, -2, 0) LimZ -2
                         Pause
                         SendResponse "MAGAZINE_LOADED"
                         Print "[ProcessReceivedMessage] Magazine loaded with ", screwCount, " screws"
@@ -328,7 +328,7 @@ Function OperationProcessor
         Select RobotState
             Case 2  ' MOVING
                 Print "[OperationProcessor] Moving to position: (", MoveX, ", ", MoveY, ", ", MoveZ, ", ", MoveU, ")"
-                Jump XY(MoveX, MoveY, MoveZ, MoveU) /L LimZ -2
+                Jump XY(MoveX, MoveY, MoveZ, MoveU) LimZ -2
                 SendResponse "POSITION_REACHED"
                 SetRobotState 1  ' Return to IDLE
                 StopRequested = False  ' Reset stop flag
@@ -406,7 +406,7 @@ Function DoInsert(ByVal index As Integer)
     MoveY = Val(CoordinateQueue$(index, 1))
     Print "[DoInsert] Inserting at: (", MoveX, ", ", MoveY, ")"
 
-    Jump XY(MoveX, MoveY, -2, 0) /L LimZ -2 ' Moved to location
+    Jump XY(MoveX, MoveY, -2, 0) LimZ -2 ' Moved to location
     Wait 0.05
     On ioGripper ' Gripper grab
     Wait 0.05
@@ -441,7 +441,7 @@ Function DoTest(ByVal index As Integer)
     Print "[DoTest] Testing at: (", MoveX, ", ", MoveY, ")"
 
     ' Move to position
-    Jump XY(MoveX, MoveY, -2, 0) /L LimZ -2
+    Jump XY(MoveX, MoveY, -2, 0) LimZ -2
     Wait 0.1
     On ioFeeder
     Wait 0.4 ' Feeder extend, must be greater than 0.3

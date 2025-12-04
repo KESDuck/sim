@@ -219,6 +219,20 @@ class EngineerTabView(QWidget):
         calib_layout = QVBoxLayout()
         calib_layout.setSpacing(12)
         
+        # Enable/Disable sliders button
+        enable_sliders_row = QHBoxLayout()
+        self.enable_sliders_btn = QPushButton("⚙️ Enable Sliders")
+        self.enable_sliders_btn.setFont(self.font_small)
+        self.enable_sliders_btn.setCheckable(True)
+        self.enable_sliders_btn.setChecked(False)  # Disabled by default
+        self.enable_sliders_btn.setMinimumHeight(28)
+        self.enable_sliders_btn.setMaximumWidth(150)
+        self.enable_sliders_btn.setStyleSheet(button_toggle_blue())
+        self.enable_sliders_btn.clicked.connect(self.on_sliders_enable_toggled)
+        enable_sliders_row.addWidget(self.enable_sliders_btn)
+        enable_sliders_row.addStretch()
+        calib_layout.addLayout(enable_sliders_row)
+        
         # Exposure time slider
         exposure_label_row = QHBoxLayout()
         exposure_label = QLabel("Exposure Time:")
@@ -272,6 +286,9 @@ class EngineerTabView(QWidget):
         
         # Initialize threshold from config
         self._update_threshold_from_config()
+        
+        # Set initial disabled state (default is disabled)
+        self._update_sliders_enabled_state(False)
         
         # Preview / capture buttons
         capture_button_row = QHBoxLayout()
@@ -759,6 +776,24 @@ class EngineerTabView(QWidget):
         except Exception as e:
             logger.error(f"Error setting threshold: {e}")
     
+    def on_sliders_enable_toggled(self):
+        """Handle enable/disable sliders button toggle"""
+        enabled = self.enable_sliders_btn.isChecked()
+        self._update_sliders_enabled_state(enabled)
+        self.enable_sliders_btn.setText("⚙️ Disable Sliders" if enabled else "⚙️ Enable Sliders")
+    
+    def _update_sliders_enabled_state(self, enabled: bool):
+        """Update enabled state of exposure and threshold sliders"""
+        self.exposure_slider.setEnabled(enabled)
+        self.threshold_slider.setEnabled(enabled)
+        # Also update labels to show disabled state
+        if not enabled:
+            self.exposure_value_label.setStyleSheet(label_muted() + " color: gray;")
+            self.threshold_value_label.setStyleSheet(label_muted() + " color: gray;")
+        else:
+            self.exposure_value_label.setStyleSheet(label_muted())
+            self.threshold_value_label.setStyleSheet(label_muted())
+    
     def on_exposure_time_changed(self, value):
         """Handle exposure time slider value change"""
         try:
@@ -871,7 +906,6 @@ class EngineerTabView(QWidget):
         self.y_spinbox.setValue(int(position[1]))
         self.z_spinbox.setValue(int(position[2]))
         self.u_spinbox.setValue(int(position[3]))
-        logger.info(f"Preloaded position from section {section_id}: ({position[0]}, {position[1]}, {position[2]}, {position[3]})")
     
     def on_speed_selected(self, speed):
         """Handle speed selection"""

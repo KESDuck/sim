@@ -314,7 +314,6 @@ class AppController(QObject):
     def set_current_tab(self, tab_name):
         """Set the current active tab."""
         self.current_tab = tab_name
-        logger.info(f"Active tab changed to: {tab_name}")
         
         # Emit a frame for the current state
         frame = self._get_frame_for_display(self.current_view_state)

@@ -1,18 +1,9 @@
-cam_type: "pylon"  # pylon or usb or file
-cam_num: 0  # used if usb camera
-cam_ip: "192.168.0.2"  # Camera IP for direct connection (Thunderbolt adapter compatible)
-save_folder: "images/"
-img_path: "images/2025-04-17 151020.jpg" # used if file camera
-
+cam_type: pylon
+cam_num: 0
+cam_ip: 192.168.0.2
+save_folder: images/
+img_path: images/2025-04-17 151020.jpg
 homo_matrix:
-  # Avg error: 0.084
-  # - [-0.000296751, -0.104393054, 95.692250864]
-  # - [-0.105495202, -0.000222384, 539.705780924]
-  # - [-0.000002936, -0.000000644, 1.000000000]
-  # Avg Error: 0.071
-    # - [-0.000008697, -0.103557476, 93.0]
-    # - [-0.104674253, -0.000046658, 596.0]
-    # - [-0.000002858, 0.000000315, 1.000000000]
   # Avg Error: 0.075, see raw data in vision_homography_mapper.py
   - [0.000134227, -0.105409095, 105.7] # 105
   - [-0.105741448, 0.000593871, 603.0] # 604.5
@@ -25,17 +16,17 @@ homo_matrix:
 section_config:
   "1":
     conveyor_position: 1
-    capture_position: [ -188, 220, 0, 180] # in robot coordinates
+    capture_position: [ -188, 230, -2, -180] # in robot coordinates
     bounding_boxes: # x_min, y_min, x_max, y_max in camera coordinates
       - [400, 300, 2100, 1600] 
   "2":
     conveyor_position: 1
-    capture_position: [ 0, 220, 0, 180]
+    capture_position: [ 0, 230, -2, -180]
     bounding_boxes:
       - [400, 300, 2100, 1600]
   "3":
     conveyor_position: 1
-    capture_position: [ 188, 220, 0, 180]
+    capture_position: [ 188, 230, -2, -180]
     bounding_boxes:
       - [400, 300, 2100, 1600]
   "4":
@@ -69,29 +60,24 @@ section_config:
 reload_position: [0, 580, 0, 0]
 
 robot:
-  simulated: false     # Enable simulated robot mode (no real hardware connection)
-  ip: "192.168.0.1"  # Robot IP address
-  port: 8501           # Robot TCP port
+  simulated: false
+  ip: 192.168.0.1
+  port: 8501
   limits:
     x_min: -270
     x_max: 270
     y_min: 170
     y_max: 420
     z_min: -157
-    z_max: -16.5
-  # z_insert: -150 # all the way
-  # z_insert: -80
-
+    z_max: -2
 camera:
-  # 45010 for longfu calibration
-  exposure_time: 55010  # Camera exposure time in microseconds (was hard-coded)
-
+  exposure_time: 102525
 vision:
-  update_frequency: 10  # Frequency of frame updates in Hz
-
+  update_frequency: 10
+  threshold: 130
 network_devices:
-  "192.168.0.1": "Robot"
-  "192.168.0.2": "Camera"
-  "192.168.0.7": "Macbook"
-  "192.168.0.8": "Dell"
-  "192.168.0.10": "PLC"
+  192.168.0.1: Robot
+  192.168.0.2: Camera
+  192.168.0.7: Macbook
+  192.168.0.8: Dell
+  192.168.0.10: PLC
