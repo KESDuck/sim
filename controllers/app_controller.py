@@ -883,18 +883,19 @@ class AppController(QObject):
             return False
     
     def _save_exposure_time_to_config(self, value: float):
-        """Save exposure time value to config file."""
+        """Save exposure time value to config file - updates only the specific value."""
         try:
-            import yaml
+            import re
             with open('config.yml', 'r') as file:
-                config_data = yaml.safe_load(file)
+                content = file.read()
             
-            if 'camera' not in config_data:
-                config_data['camera'] = {}
-            config_data['camera']['exposure_time'] = int(value)
+            # Find and replace only the number value, preserving formatting
+            pattern = r'(\s+exposure_time:\s+)(\d+)'
+            replacement = r'\g<1>' + str(int(value))
+            updated_content = re.sub(pattern, replacement, content)
             
             with open('config.yml', 'w') as file:
-                yaml.dump(config_data, file, default_flow_style=False, sort_keys=False)
+                file.write(updated_content)
         except Exception as e:
             logger.error(f"Error saving exposure time to config: {e}")
     
@@ -923,18 +924,19 @@ class AppController(QObject):
             return False
     
     def _save_threshold_to_config(self, value: int):
-        """Save threshold value to config file."""
+        """Save threshold value to config file - updates only the specific value."""
         try:
-            import yaml
+            import re
             with open('config.yml', 'r') as file:
-                config_data = yaml.safe_load(file)
+                content = file.read()
             
-            if 'vision' not in config_data:
-                config_data['vision'] = {}
-            config_data['vision']['threshold'] = value
+            # Find and replace only the number value, preserving formatting
+            pattern = r'(\s+threshold:\s+)(\d+)'
+            replacement = r'\g<1>' + str(value)
+            updated_content = re.sub(pattern, replacement, content)
             
             with open('config.yml', 'w') as file:
-                yaml.dump(config_data, file, default_flow_style=False, sort_keys=False)
+                file.write(updated_content)
             
         except Exception as e:
             logger.error(f"Error saving threshold to config: {e}")

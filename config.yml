@@ -4,10 +4,11 @@ cam_ip: 192.168.0.2
 save_folder: images/
 img_path: images/2025-04-17 151020.jpg
 homo_matrix:
-  # Avg Error: 0.075, see raw data in vision_homography_mapper.py
-  - [0.000134227, -0.105409095, 105.7] # 105
-  - [-0.105741448, 0.000593871, 603.0] # 604.5
-  - [-0.000000930, 0.000001675, 1.000000000]
+  # Aim for RMS error < 0.1 mm
+  # RMS Error: 0.090 mm, see raw data in vision_homography_mapper.py
+  - [0.000041143, -0.111839384, 113.124741393]
+  - [-0.111762029, 0.000398288, 543.186118304]
+  - [0.000000549, 0.000001110, 1.000000000]
 
 # 1 2 3
 # 4 5 6

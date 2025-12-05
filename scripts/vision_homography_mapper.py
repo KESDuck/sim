@@ -58,27 +58,27 @@ class HomographyMapper:
 def main():
     # Calibration points
     image_points = np.array([
-[2296, 217],
-[2293, 954],
-[2291, 1690],
-[1280, 1689],
-[1283, 951],
-[1285, 213],
-[273, 215],
-[272, 952],
-[270, 1689]
+(280.0, 1647.0),
+(279.0, 951.0),
+(276.0, 258.0),
+(1227.0, 252.0),
+(1231.0, 945.0),
+(1234.0, 1642.0),
+(2189.0, 1631.0),
+(2181.0, 936.0),
+(2175.0, 244.0),
     ])
     
     robot_points = np.array([
-[ 83.852, 360.699],
-[  6.038, 361.216],
-[-71.421, 361.214],
-[-71.408, 467.729],
-[  6.288, 467.530],
-[ 84.137, 467.530],
-[ 83.739, 573.973],
-[  5.936, 573.793],
-[-71.528, 573.792]
+(-71.056, 511.500),
+(  6.875, 511.774),
+( 84.258, 512.173),
+( 84.908, 405.834),
+(  7.406, 405.384),
+(-70.190, 404.888),
+(-69.000, 298.310),
+(  8.570, 299.107),
+( 85.742, 299.701)
     ])
     
     try:
@@ -89,9 +89,16 @@ def main():
         # Print calibration errors
         errors = mapper.calculate_error()
         print("\nCalibration Errors:")
-        for i, error in enumerate(errors):
-            print(f"Point {i+1}: {error:.3f} units")
-        print(f"\nAverage Error: {sum(errors)/len(errors):.3f} units")
+        for i, (img_pt, expected_pt, error) in enumerate(zip(image_points, robot_points, errors)):
+            mapped_pt = mapper.map_image_to_world(tuple(img_pt))
+            print(f"Point {i+1}:")
+            print(f"  Original robot point: ({expected_pt[0]:.3f}, {expected_pt[1]:.3f})")
+            print(f"  Mapped robot point:   ({mapped_pt[0]:.3f}, {mapped_pt[1]:.3f})")
+            print(f"  Error: {error:.3f} mm")
+        mean_error = sum(errors)/len(errors)
+        rms_error = math.sqrt(sum(e**2 for e in errors) / len(errors))
+        print(f"\nMean Error: {mean_error:.3f} mm")
+        print(f"RMS Error: {rms_error:.3f} mm")
         
     except Exception as e:
         print(f"Error during homography calculation: {e}")
