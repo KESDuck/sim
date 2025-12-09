@@ -175,6 +175,6 @@ def draw_boundary_box(image, bounding_boxes):
         x_min, y_min, x_max, y_max = [int(coord) for coord in bbox]
         
         # Draw red rectangle (BGR format: red is (0, 0, 255)) with thickness 2
-        cv.rectangle(image, (x_min, y_min), (x_max, y_max), (255, 0, 0), 2)
+        cv.rectangle(image, (x_min, y_min), (x_max, y_max), (255, 0, 0), 5)
     
     return image

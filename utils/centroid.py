@@ -71,10 +71,10 @@ class CentroidManager:
         sorted_centroids = self._sort_centroids(flagged_centroids)
 
         # Subsample the centroids and recalculate row indices
-        subsampled_centroids = self._subsample_centroids_evenly(sorted_centroids, row_subsample=6, centroid_subsample=6)
+        # subsampled_centroids = self._subsample_centroids_evenly(sorted_centroids, row_subsample=6, centroid_subsample=6)
 
         # Convert to robot coordinates and store in the same objects
-        self.centroids = self._convert_to_robot_coords(subsampled_centroids)
+        self.centroids = self._convert_to_robot_coords(sorted_centroids)
 
         # Store timestamp when processing completed
         self.last_processed_time = time.time()

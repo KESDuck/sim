@@ -88,7 +88,7 @@ class AppController(QObject):
     # batch processing constants
     QUEUE_BATCH_SIZE = 15
 
-    current_display_section = "5"
+    current_display_section = "1"
 
     def __init__(self):
         super().__init__()
@@ -439,9 +439,11 @@ class AppController(QObject):
             return False
             
         # Set operation parameters
-        logger.info(f"Starting mode: {mode}")
+        old_mode = self.current_operation_mode
         self.operation_section_id = section_id
         self.current_operation_mode = mode
+        if old_mode != mode:
+            logger.info(f"  🟢🟢🟢 MODE:  {mode} 🟢🟢🟢")
         
         # Start the state machine
         self.transition_to(self.STATE_MOVE_TO_CAPTURE)
@@ -455,7 +457,8 @@ class AppController(QObject):
             new_state: The target state to transition to
             reason: Reason for transition ("success", "timeout", "error", "failure")
         """
-        logger.info(f"Operation state transition: {self.current_operation_state} ➡️ {new_state} (reason: {reason})")
+        old_state = self.current_operation_state
+        old_mode = self.current_operation_mode
         
         # If we're stopping, don't allow transitions to non-idle states
         if hasattr(self, 'stopping') and self.stopping and new_state != self.STATE_IDLE:
@@ -464,6 +467,19 @@ class AppController(QObject):
             
         self.current_operation_state = new_state
         
+        # Set mode to idle if transitioning to idle state
+        if new_state == self.STATE_IDLE:
+            self.current_operation_mode = self.MODE_IDLE
+        
+        # Log state transition
+        if old_state != new_state:
+            reason_symbol = "✓" if reason == "success" else "✗" if reason == "error" else "⏱" if reason == "timeout" else "•"
+            logger.info(f"  🟦 STATE: {new_state:20s}{reason_symbol} {reason}")
+        
+        # Log mode transition if it changed
+        if old_mode != self.current_operation_mode:
+            logger.info(f"  🟢🟢🟢 MODE:  {self.current_operation_mode} 🟢🟢🟢")
+
         # Emit state/mode update signal
         self.state_mode_updated.emit(self.current_operation_state, self.current_operation_mode)
         
@@ -482,8 +498,6 @@ class AppController(QObject):
             self._execute_insert()
         elif new_state == self.STATE_TESTING:
             self._execute_test()
-        elif new_state == self.STATE_IDLE:
-            self.current_operation_mode = self.MODE_IDLE
     
     def _execute_move_capture(self):
         """Execute the move to capture position"""
@@ -612,16 +626,19 @@ class AppController(QObject):
 
         valid_batch = [centroid for centroid in batch if self._within_robot_limits(centroid.robot_x, centroid.robot_y)]
         skipped = len(batch) - len(valid_batch)
-        if skipped:
-            logger.warning(f"Skipping {skipped} centroid(s) outside robot XY limits")
-        if not valid_batch:
-            self._batch_send_centroids(centroids, end_idx)
-            return
         
         # Build the batch command
         queue_cmd = "queue " + " ".join([f"{centroid.robot_x:.2f} {centroid.robot_y:.2f}" for centroid in valid_batch])
         
-        logger.info(f"Queue batch {start_idx}-{end_idx-1}: Start")
+        # Log batch info with filtering details
+        if skipped > 0:
+            logger.warning(f"  ⚠️  QUEUE: batch {start_idx}-{end_idx-1}  ({len(batch)} centroids) → {len(valid_batch)} valid, {skipped} filtered (outside limits)")
+        else:
+            logger.info(f"  📤 QUEUE: batch {start_idx}-{end_idx-1}  ({len(valid_batch)} centroids)")
+        
+        if not valid_batch:
+            self._batch_send_centroids(centroids, end_idx)
+            return
         self.robot.send(
             cmd=queue_cmd,
             expect=self.EXPECT_QUEUE_APPENDED,
@@ -781,6 +798,11 @@ class AppController(QObject):
             # Emit signal for UI synchronization if section actually changed
             if old_section != section_str:
                 self.section_changed.emit(section_str)
+                # Update centroids filtering for new section
+                self._update_centroids()
+                # Refresh frame to show new bounding boxes
+                frame = self._get_frame_for_display(self.current_view_state)
+                self._prepare_and_emit_frame(frame)
             
         else:
             logger.warning(f"Invalid section_id: {section_id}. Available sections: {list(self.section_config.keys())}")

@@ -1,4 +1,4 @@
-cam_type: pylon
+cam_type: file
 cam_num: 0
 cam_ip: 192.168.0.2
 save_folder: images/
@@ -19,63 +19,70 @@ section_config:
     conveyor_position: 1
     capture_position: [ -188, 230, -2, -180] # in robot coordinates
     bounding_boxes: # x_min, y_min, x_max, y_max in camera coordinates
-      - [400, 300, 2100, 1600] 
+      # - [400, 300, 2100, 1600] 
+      - [400, 1300, 1200, 1600]
   "2":
     conveyor_position: 1
     capture_position: [ 0, 230, -2, -180]
     bounding_boxes:
-      - [400, 300, 2100, 1600]
+      - [400, 780, 1200, 1080]
   "3":
     conveyor_position: 1
     capture_position: [ 188, 230, -2, -180]
     bounding_boxes:
-      - [400, 300, 2100, 1600]
+      - [400, 300, 1200, 600]
   "4":
     conveyor_position: 2
+    capture_position: [ -188, 230, -2, -180]
     bounding_boxes:
-      - [400, 300, 2100, 1600]
+      - [850, 1300, 1650, 1600]
   "5":
     conveyor_position: 2
+    capture_position: [ 0, 230, -2, -180]
     bounding_boxes:
-      - [350, 300, 750, 1600]
-      - [950, 300, 1500, 1600]
-      - [1700, 300, 2100, 1600]
+      # - [350, 300, 750, 1600]
+      # - [950, 300, 1500, 1600]
+      # - [1700, 300, 2100, 1600]
+      - [850, 780, 1650, 1080]
   "6":
     conveyor_position: 2
+    capture_position: [ 188, 230, -2, -180]
     bounding_boxes:
-      - [400, 300, 2100, 1600]
+      - [850, 300, 1650, 600]
   "7":
     conveyor_position: 3
+    capture_position: [ -188, 230, -2, -180]
     bounding_boxes:
-      - [400, 300, 2100, 1600]
+      - [1300, 1300, 2100, 1600]
   "8":
     conveyor_position: 3
+    capture_position: [ 0, 230, -2, -180]
     bounding_boxes:
-      - [400, 300, 2100, 1600]
+      - [1300, 780, 2100, 1080]
   "9":
     conveyor_position: 3
+    capture_position: [ 188, 230, -2, -180]
     bounding_boxes:
-      - [400, 300, 2100, 1600]
+      - [1300, 300, 2100, 600]
 
-
-reload_position: [0, 580, 0, 0]
+reload_position: [0, 300, -2, 0]
 
 robot:
-  simulated: false
+  simulated: true
   ip: 192.168.0.1
   port: 8501
   limits:
     x_min: -270
     x_max: 270
     y_min: 170
-    y_max: 420
+    y_max: 999
     z_min: -157
     z_max: -2
 camera:
-  exposure_time: 102525
+  exposure_time: 53257
 vision:
   update_frequency: 10
-  threshold: 130
+  threshold: 136
 network_devices:
   192.168.0.1: Robot
   192.168.0.2: Camera

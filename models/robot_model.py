@@ -154,14 +154,15 @@ class RobotModel(QObject):
             on_timeout=on_timeout
         )
         self._expectations.append(expectation)
-        logger.debug(f"⚪️ Expectation added: {expected_response} (timeout: {timeout}s)")
+        logger.info(f"  ⬜ {expected_response:25s}  (timeout: {timeout:.1f}s)")
 
     def _on_raw_response(self, resp: str):
         """Process raw responses from the socket and handle expectations."""
         # Handle expectations
         for exp in list(self._expectations):
             if resp == exp.expected_response:
-                logger.debug(f"🟢 Expectation fulfilled: {exp.expected_response} (timeout: {exp.timeout}s)")
+                elapsed = time.time() - exp.start_time
+                logger.info(f"  ✅ {exp.expected_response:25s}  ({elapsed:.2f}s)")
                 self._expectations.remove(exp)
                 if exp.on_success:
                     exp.on_success()  # Drive the state machine forward
@@ -202,7 +203,8 @@ class RobotModel(QObject):
         # Iterate over a copy of the list, as we might modify the original list
         for expectation in self._expectations[:]:
             if current_time - expectation.start_time > expectation.timeout:
-                logger.error(f"🔴 Expectation timed out: {expectation.expected_response}")
+                elapsed = current_time - expectation.start_time
+                logger.error(f"  ❌ FAIL:  {expectation.expected_response:25s}  (timed out: {elapsed:.1f}s / {expectation.timeout:.1f}s)")
 
                 self._expectations.remove(expectation)
                 
@@ -244,7 +246,7 @@ class RobotModel(QObject):
                 
                 # Simulate the response after a short delay
                 def simulate_response():
-                    logger.debug(f"Simulated response: {expect}")
+                    # logger.debug(f"Simulated response: {expect}")
                     self._on_raw_response(expect)
                     # Remove timer from our list after it fires
                     if timer in self._simulation_timers:
@@ -285,7 +287,7 @@ class RobotModel(QObject):
         if self._expectations:
             logger.info(f"Clearing {len(self._expectations)} pending expectations")
             for exp in self._expectations:
-                logger.debug(f"🟠 Clearing expectation: {exp.expected_response}")
+                logger.debug(f"{"Clearing expectation: ":<40}🟠{exp.expected_response}")
             self._expectations.clear()
     
     def close(self):
